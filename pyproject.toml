@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aslxplane"
+version = "0.0.1"
+authors = [
+  { name="Rohan Sinha", email="rhnsinha@stanford.edu" },
+  { name="Sydney Katz", email="smkatz@stanford.edu" },
+  { name="Kyle Julian" },
+]
+description = "The ASL's version of the NASA ULI Xplane simulation python code"
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/StanfordASL/XPlane-ASL"
+"Bug Tracker" = "https://github.com/StanfordASL/XPlane-ASL/issues"
