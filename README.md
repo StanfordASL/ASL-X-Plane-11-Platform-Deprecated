@@ -12,7 +12,7 @@ The ASL's port of the NASA-ULI-Xplane repository. Refactored the ULI-Xplane repo
 1. Clone the repository: `git clone https://github.com/StanfordASL/XPlane-ASL.git`
 2. Enter the XPLANE-ASL directory: `cd XPLANE-ASL`
 3. (optional) create and activate a virtual environment to install the packages:
-  - to create virtual env: 'python3 -m venv xplane-asl --system-site-packages'
+  - to create virtual env: `python3 -m venv xplane-asl --system-site-packages`
   - to activate virtual env: `source xplane-env/bin/activate`
   - to shut down virtual env: `deactivate`
 4. build the aslxplane and xpc3 packages
