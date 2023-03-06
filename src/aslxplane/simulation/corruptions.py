@@ -55,7 +55,6 @@ class Snow:
             lightness_multiplier=scale
             )
 
-
     def add_snow(self, img):
         img = self.aug(image=img)
         return img  

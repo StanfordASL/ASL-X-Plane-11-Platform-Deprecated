@@ -31,7 +31,7 @@ class GroundTruthEstimator(Estimator):
         oberservable control
 
         Args:
-            observation: throwaway argument
+            observation: throwaway argument, queries ground truth from xpc3 client
         """
         cte, _, he = xpc3_helper.getHomeState(self.client)
         return cte, he
