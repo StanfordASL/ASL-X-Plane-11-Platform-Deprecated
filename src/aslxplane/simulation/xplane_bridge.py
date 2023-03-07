@@ -100,9 +100,11 @@ class XPlaneBridge:
         return self.client.getDREF("sim/time/zulu_time_sec")[0]
     
     def get_local_time(self):
-        zulu_time = self.get_zulu_time()
-        time = pd.to_datetime(zulu_time - 8 * 3600, unit="s")
-        return time.hour + time.minute / 60
+        # zulu_time = self.get_zulu_time()
+        # time = pd.to_datetime(zulu_time - 8 * 3600, unit="s")
+        # return time.hour + time.minute / 60
+        local_time = self.client.getDREF("sim/time/local_time_sec")[0] / 3600
+        return local_time
     
     def get_ground_truth_state(self):
         """retrieves current ground truth state from the simulator
