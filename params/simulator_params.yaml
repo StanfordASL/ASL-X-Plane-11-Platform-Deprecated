@@ -1,0 +1,31 @@
+simulator:
+  sim_speed: 1.0
+  time_step: 1.0
+  starting_position_pct: 0.5
+  ending_position_pct: 20.0
+  max_episode_time: 60.0
+  episode_pause_time: 5.0
+  runway_length: 2982.0
+  weather:
+    0: "clear"
+    1: "cirrus"
+    2: "scattered"
+    3: "broken"
+    4: "overcast"
+  time_of_day:
+    0:
+      label: "morning"
+      range: [5,12]
+    1:
+      label: "afternoon"
+      range: [12, 17]
+    2:
+      label: "night"
+      range: [[0,5], [17,24]]
+
+screenshot_camera: 
+  monitor_id: 2 #specify monitor id when using multiple monitors, else use 1
+  padding: 100 #crop by x pixles to cut off window ribbons
+  height: 200
+  width: 360
+  toolbar_crop_pixels: 230

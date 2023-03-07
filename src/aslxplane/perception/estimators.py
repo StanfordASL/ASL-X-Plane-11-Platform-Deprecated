@@ -33,8 +33,8 @@ class GroundTruthEstimator(Estimator):
         Args:
             observation: throwaway argument, queries ground truth from xpc3 client
         """
-        cte, _, he = xpc3_helper.getHomeState(self.client)
-        return cte, he
+        cte, dtp, he = xpc3_helper.getHomeState(self.client)
+        return cte, dtp, he
 
 IMG_SIZE = (128,256)
 
@@ -55,7 +55,7 @@ class TaxiNet(Estimator):
     def get_estimate(self, observation):
         img = self.downsample(observation)
         with torch.no_grad():
-            pred = self.network(img).squeeze()
+            pred = self.model(img).squeeze()
         cte = pred[0].item() * self.cte_norm_const
         he = pred[1].item() * self.he_norm_const
         return cte, he

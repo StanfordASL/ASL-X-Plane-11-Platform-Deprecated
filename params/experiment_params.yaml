@@ -1,0 +1,42 @@
+
+initial_position:
+  he_range: [-20, 20]
+  cte_range: [-6, 6]
+
+weather_types: [0, 1, 2, 3, 4]
+
+ood:
+  corruption_types: 
+    - "None"
+    - "Noise"
+    - "Rain"
+    - "Motion Blur"
+    - "Rain and Motion Blur"
+    - "Snow"
+  corruption: "Rain"
+  experiment_time_range: [8,8.1]
+
+controller:
+  steering: 
+    P: -0.03
+    I: 0.0
+    D: 0.0
+    he_ratio: 0.5 # = approx 0.016 / 0.03
+    input_constraints: [-1, 1]
+  speed:
+    low_u: 0.0
+    high_u: 0.7
+    nominal_u: 0.5
+    low_speed: 6.0
+    high_speed: 20.0
+    input_constraints: [-1, 1]
+
+logging:
+  normalization:
+    cte_constant: 10.0
+    he_constant: 30.0
+  output_dir: "../Xplane-data-dir/xplane-asl-test/taxinet-03-06-23"
+
+state_estimation:
+  use_taxinet: True
+  model_file: "data/models/taxinet03-02_14-53.nn"

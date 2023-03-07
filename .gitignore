@@ -1,5 +1,7 @@
 # Repo specific files
 xplane-env/
+data/
+.ipynb_checkpoints/
 
 #Byte-compiled / optimized / DLL files
 __pycache__/
