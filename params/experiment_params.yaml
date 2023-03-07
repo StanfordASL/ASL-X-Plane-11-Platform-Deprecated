@@ -13,8 +13,8 @@ ood:
     - "Motion Blur"
     - "Rain and Motion Blur"
     - "Snow"
-  corruption: "Rain"
-  experiment_time_range: [8,8.1]
+  corruption: "None"
+  experiment_time_range: [18,18.1]
 
 controller:
   steering: 

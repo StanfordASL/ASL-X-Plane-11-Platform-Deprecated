@@ -106,6 +106,18 @@ class XPlaneBridge:
         local_time = self.client.getDREF("sim/time/local_time_sec")[0] / 3600
         return local_time
     
+    def get_weather(self):
+        cloud_cover = self.client.getDREF("sim/weather/cloud_type[0]")[0]
+        return cloud_cover, self.params["simulator"]["weather"][cloud_cover]
+
+    def get_time_of_day(self):
+        time_of_day = np.where([
+            in_range(self.get_local_time(), v["range"])
+            for k,v 
+            in self.params["simulator"]["time_of_day"].items()
+            ])[0][0]
+        return time_of_day, self.params["simulator"]["time_of_day"][time_of_day]["label"]
+    
     def get_ground_truth_state(self):
         """retrieves current ground truth state from the simulator
         returns: 
@@ -118,8 +130,20 @@ class XPlaneBridge:
         cte, dtp, he = xpc3_helper.getHomeState(self.client)
         return cte, he, dtp, speed
     
+    def get_perc_down_runway(self):
+        return xpc3_helper.getPercDownRunway(self.client)
+    
     def episode_complete(self):
-        perc_down_runway = xpc3_helper.getPercDownRunway(self.client)
+        perc_down_runway = self.get_perc_down_runway()
         curr_time = self.get_zulu_time()
-        return (perc_down_runway > self.params["simulator"]["ending_position_pct"] or
-                 curr_time  - self.start_time > self.params["simulator"]["max_episode_time"])
+        is_finished = (perc_down_runway > self.params["simulator"]["ending_position_pct"] or curr_time  - self.start_time > self.params["simulator"]["max_episode_time"])
+        if is_finished:
+            xpc3_helper.reset(self.client)
+        return is_finished
+    
+def in_range(time, ranges):
+    if type(ranges[0]) == list:
+        return np.any([in_range(time, range) for range in ranges])
+    else:
+        return time >= ranges[0] and time < ranges[1]
+    

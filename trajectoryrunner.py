@@ -4,6 +4,7 @@ import xpc3.xpc3 as xpc3
 from aslxplane.simulation.xplane_bridge import XPlaneBridge
 from aslxplane.control.xplanecontroller import XPlaneController
 from aslxplane.perception.estimators import TaxiNet
+from aslxplane.simulation.data_recorder import DataRecorder
 
 with open("params/simulator_params.yaml") as file:
 	simulator_params = yaml.load(file, Loader=yaml.FullLoader)
@@ -17,20 +18,30 @@ def sample_episode_params(experiment_params):
       episode_params["ood"] = {"corruption": experiment_params["ood"]["corruption"]}
       return episode_params
 
-def run_trajectory(xplane, controller, estimator, episode_params):
+def run_trajectory(xplane, controller, estimator, episode_params, data_recorder=None):
     print("resetting simulator")
     xplane.reset(episode_params)
     controller.reset()
 
+    if data_recorder is not None:
+        data_recorder.reset()
+
     while not xplane.episode_complete():
         observation = xplane.get_observation()
-        cte, he = estimator.get_estimate(observation)
         ground_truth_state = xplane.get_ground_truth_state()
+
+        if data_recorder is not None:
+            data_recorder.record(xplane, ground_truth_state, observation)
+
+        cte, he = estimator.get_estimate(observation)
         speed = ground_truth_state[-1]
         he = ground_truth_state[1]
+
         rudder, throttle = controller.get_input((cte, he, speed))
+
         xplane.send_control(rudder, throttle)
         xplane.sleep()
+
         print("cte", cte, "he",he, "speed",speed)
 
 with xpc3.XPlaneConnect() as client:
@@ -43,10 +54,16 @@ with xpc3.XPlaneConnect() as client:
       estimator = TaxiNet(experiment_params["state_estimation"]["model_file"])
       episode_params = sample_episode_params(experiment_params)
 
+      if experiment_params["logging"]["log_data"]:
+            data_recorder = DataRecorder(experiment_params["logging"])
+      else:
+            data_recorder = None
+
       run_trajectory(
             xplane,
             controller,
             estimator,
-            episode_params
+            episode_params,
+            data_recorder=data_recorder
       )
 
