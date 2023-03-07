@@ -1,14 +1,15 @@
 The ASL's port of the NASA-ULI-Xplane repository. Refactored the ULI-Xplane repo to improve code quality, readability, and functionality
 
 ## To Do:
-- [] generate mkdocs
-- [] reimplement the sinusoid controller for data generation
-- [] reimplement the data logger
-- [] improve code quality of the estimation stack
-- [] regress new taxinet model, the heading error estimates are too bad on this one
+- [ ] generate mkdocs
+- [ ] generate mkdocs
+- [ ] reimplement the sinusoid controller for data generation
+- [ ] reimplement the data logger
+- [ ] improve code quality of the estimation stack
+- [ ] regress new taxinet model, the heading error estimates are too bad on this one
 Nice-to-haves:
-- [] implement wrapper to conform to openai gym api specification
-- [] implement functionality to run the xplane_bridge as a ROS node
+- [ ] implement wrapper to conform to openai gym api specification
+- [ ] implement functionality to run the xplane_bridge as a ROS node
 
 
 ## Setup Instructions:
