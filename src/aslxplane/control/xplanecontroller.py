@@ -6,7 +6,7 @@ class XPlaneController(controllers.Controller):
     def __init__(self, steering_params, speed_params, dt):
         super(XPlaneController, self).__init__(
             dt, 
-            [np.array([c1,c2]) for c1, c2 in zip(steering_params["input_constraints"], speed_params["input_constraints"])]
+            [np.array([c1, c2]) for c1, c2 in zip(steering_params["input_constraints"], speed_params["input_constraints"])]
             )
         self.he_ratio = steering_params["he_ratio"]
         self.steering_controller = controllers.PID(

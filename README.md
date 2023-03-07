@@ -1,12 +1,15 @@
 The ASL's port of the NASA-ULI-Xplane repository. Refactored the ULI-Xplane repo to improve code quality, readability, and functionality
 
 ## To Do:
-- [ ] create one file with code to run one trajectory, including data logging
-- [ ] create one file template to run many experiments
-- [ ] move all config files to json/yaml
-- [ ] create controller abstract template
-- [ ] optionally, create ros pakage to run experiments with the simulator with ros
-- [ ] 
+- [] generate mkdocs
+- [] reimplement the sinusoid controller for data generation
+- [] reimplement the data logger
+- [] improve code quality of the estimation stack
+- [] regress new taxinet model, the heading error estimates are too bad on this one
+Nice-to-haves:
+- [] implement wrapper to conform to openai gym api specification
+- [] implement functionality to run the xplane_bridge as a ROS node
+
 
 ## Setup Instructions:
 1. Clone the repository: `git clone https://github.com/StanfordASL/XPlane-ASL.git`

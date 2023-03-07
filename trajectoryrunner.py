@@ -10,8 +10,6 @@ with open("params/simulator_params.yaml") as file:
 with open("params/experiment_params.yaml") as file:
 	experiment_params = yaml.load(file, Loader=yaml.FullLoader)
         
-# import pdb; pdb.set_trace()
-
 def sample_episode_params(experiment_params):
       episode_params = {}
       episode_params["start_time"] = np.random.uniform(*experiment_params["ood"]["experiment_time_range"])
