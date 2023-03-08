@@ -5,14 +5,16 @@ The ASL's port of the NASA-ULI-Xplane repository. Refactored the ULI-Xplane repo
 - [ ] reimplement the sinusoid controller for data generation
 - [X] reimplement the data logger
 - [ ] improve code quality of the estimation stack
-- [ ] write a script to create a video/gif of an episode
-- [ ] multi-episode trajectory runner with weights and biases logging
+- [X] write a scripts and utilities to create a video/gif of an episode
+- [ ] add an episode termination condition if aircraft leaves runway
+- [X] multi-episode trajectory runner (with weights and biases logging)
 - [ ] figure out how to place obstacles on the runway
 - [ ] regress new taxinet model, the heading error estimates are too bad on this one
-- [ ] add utility to load parameter files as mappingproxytypes so that they are read only
+- [X] make a note that the new datalogger starts at episode 0 not 1
+
 
 Nice-to-haves:
-
+- [ ] add utility to load parameter files as mappingproxytypes so that they are read only
 - [ ] implement wrapper to conform to openai gym api specification
 - [ ] implement functionality to run the xplane_bridge as a ROS node
 

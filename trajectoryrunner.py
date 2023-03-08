@@ -1,6 +1,7 @@
 import yaml
 import numpy as np
 import xpc3.xpc3 as xpc3
+import tqdm
 from aslxplane.simulation.xplane_bridge import XPlaneBridge
 from aslxplane.control.xplanecontroller import XPlaneController
 from aslxplane.perception.estimators import TaxiNet
@@ -15,7 +16,7 @@ def sample_episode_params(experiment_params):
       episode_params = {}
       episode_params["start_time"] = np.random.uniform(*experiment_params["ood"]["experiment_time_range"])
       episode_params["weather"] = np.random.choice(experiment_params["weather_types"])
-      episode_params["ood"] = {"corruption": experiment_params["ood"]["corruption"]}
+      episode_params["ood"] = {"corruption": np.random.choice(experiment_params["ood"]["corruption"])}
       return episode_params
 
 def run_trajectory(xplane, controller, estimator, episode_params, data_recorder=None):
@@ -42,28 +43,27 @@ def run_trajectory(xplane, controller, estimator, episode_params, data_recorder=
         xplane.send_control(rudder, throttle)
         xplane.sleep()
 
-        print("cte", cte, "he",he, "speed",speed)
-
 with xpc3.XPlaneConnect() as client:
-      xplane = XPlaneBridge(client, simulator_params)
-      controller = XPlaneController(
-            experiment_params["controller"]["steering"],
-            experiment_params["controller"]["speed"],
-            simulator_params["simulator"]["time_step"]
-      )
-      estimator = TaxiNet(experiment_params["state_estimation"]["model_file"])
-      episode_params = sample_episode_params(experiment_params)
+    xplane = XPlaneBridge(client, simulator_params)
+    controller = XPlaneController(
+        experiment_params["controller"]["steering"],
+        experiment_params["controller"]["speed"],
+        simulator_params["simulator"]["time_step"]
+    )
+    estimator = TaxiNet(experiment_params["state_estimation"]["model_file"])
 
-      if experiment_params["logging"]["log_data"]:
-            data_recorder = DataRecorder(experiment_params["logging"])
-      else:
-            data_recorder = None
-
-      run_trajectory(
+    if experiment_params["logging"]["log_data"]:
+        data_recorder = DataRecorder(experiment_params["logging"])
+    else:
+        data_recorder = None
+    
+    for i in range(experiment_params["num_episodes"]):
+        episode_params = sample_episode_params(experiment_params)
+        run_trajectory(
             xplane,
             controller,
             estimator,
             episode_params,
             data_recorder=data_recorder
-      )
+        )
 

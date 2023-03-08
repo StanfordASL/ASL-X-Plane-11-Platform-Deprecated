@@ -3,18 +3,19 @@ initial_position:
   he_range: [-20, 20]
   cte_range: [-6, 6]
 
+num_episodes: 10
+
 weather_types: [0, 1, 2, 3, 4]
 
 ood:
-  corruption_types: 
+  corruption:
     - "None"
     - "Noise"
     - "Rain"
     - "Motion Blur"
     - "Rain and Motion Blur"
     - "Snow"
-  corruption: "None"
-  experiment_time_range: [18,18.1]
+  experiment_time_range: [12,12.1]
 
 controller:
   steering: 
@@ -33,6 +34,7 @@ controller:
 
 logging:
   log_data: True
+  use_wandb: False
   normalization:
     cte_constant: 10.0
     he_constant: 30.0

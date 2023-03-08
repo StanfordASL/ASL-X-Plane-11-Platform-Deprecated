@@ -41,6 +41,8 @@ class DataRecorder:
 
         cte, he, dtp, speed = true_state
 
+        image_corruption, _ = xplane.get_corruption_status()
+
         img_filename = 'MWH_Runway04_' \
             + time_of_day_label + '_' \
             + cloud_cover_label + '_' \
@@ -57,9 +59,10 @@ class DataRecorder:
             "downtrack_position_NORMALIZED": xplane.get_perc_down_runway(),
             "heading_error_degrees": he,
             "heading_error_NORMALIZED": he / self.params["normalization"]["he_constant"],
-            "speed": speed,
+            "speed_meters_per_second": speed,
             "period_of_day": time_of_day,
-            "cloud_type": cloud_cover
+            "cloud_type": cloud_cover,
+            "image_corruption":image_corruption
         }
 
         if self.curr_episode == 0 and self.curr_time_step == 0:

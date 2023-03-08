@@ -6,12 +6,13 @@ simulator:
   max_episode_time: 60.0
   episode_pause_time: 5.0
   runway_length: 2982.0
+  runway_width: 10.0
   weather:
-    0: "clear"
-    1: "cirrus"
-    2: "scattered"
-    3: "broken"
-    4: "overcast"
+    - "clear"
+    - "cirrus"
+    - "scattered"
+    - "broken"
+    - "overcast"
   time_of_day:
     0:
       label: "morning"
@@ -29,3 +30,10 @@ screenshot_camera:
   height: 200
   width: 360
   toolbar_crop_pixels: 230
+  corruption_types: 
+    - "None"
+    - "Noise"
+    - "Rain"
+    - "Motion Blur"
+    - "Rain and Motion Blur"
+    - "Snow"

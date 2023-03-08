@@ -107,7 +107,7 @@ class XPlaneBridge:
         return local_time
     
     def get_weather(self):
-        cloud_cover = self.client.getDREF("sim/weather/cloud_type[0]")[0]
+        cloud_cover = int(self.client.getDREF("sim/weather/cloud_type[0]")[0])
         return cloud_cover, self.params["simulator"]["weather"][cloud_cover]
 
     def get_time_of_day(self):
@@ -133,6 +133,17 @@ class XPlaneBridge:
     def get_perc_down_runway(self):
         return xpc3_helper.getPercDownRunway(self.client)
     
+    def get_corruption_status(self):
+        if self.observation_corruption is None:
+            return 0, "None"
+        else:
+            corruption = [(i, corruption_type)
+                for i, corruption_type
+                in enumerate(self.params["screenshot_camera"]["corruption_types"])
+                if corruption_type == str(self.observation_corruption)
+                ]
+            return corruption[0]
+            
     def episode_complete(self):
         perc_down_runway = self.get_perc_down_runway()
         curr_time = self.get_zulu_time()
