@@ -60,14 +60,3 @@ class TaxiNet(Estimator):
         he = pred[1].item() * self.he_norm_const
         return cte, he
 
-def get_encoder():
-
-    encoder = nn.Sequential(
-        nn.Flatten(),
-        nn.Linear(np.prod(IMG_SIZE), 128),
-        nn.ReLU(),
-        nn.Linear(128, 64),
-        nn.ReLU(),
-        nn.Linear(64, 2)
-    )
-    return encoder

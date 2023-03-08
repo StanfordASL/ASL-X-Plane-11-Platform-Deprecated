@@ -42,4 +42,4 @@ logging:
 
 state_estimation:
   estimator: "taxinet"
-  model_file: "data/models/taxinet03-02_14-53.nn"
+  model_file: "data/models/taxinet03-02_14-53.pt"
