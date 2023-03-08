@@ -52,9 +52,9 @@ with xpc3.XPlaneConnect() as client:
 
       if experiment_params["state_estimation"]["estimator"] == "taxinet":
             estimator = TaxiNet(
-            experiment_params["state_estimation"]["model_file"], 
-            experiment_params["logging"]["normalization"]
-      )
+                  experiment_params["state_estimation"]["model_file"], 
+                  experiment_params["logging"]["normalization"]
+            )
       else:
             estimator = GroundTruthEstimator(xplane)
 
