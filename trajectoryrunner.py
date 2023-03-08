@@ -4,7 +4,7 @@ import xpc3.xpc3 as xpc3
 import tqdm
 from aslxplane.simulation.xplane_bridge import XPlaneBridge
 from aslxplane.control.xplanecontroller import XPlaneController
-from aslxplane.perception.estimators import TaxiNet
+from aslxplane.perception.estimators import TaxiNet, GroundTruthEstimator
 from aslxplane.simulation.data_recorder import DataRecorder
 
 with open("params/simulator_params.yaml") as file:
@@ -36,7 +36,6 @@ def run_trajectory(xplane, controller, estimator, episode_params, data_recorder=
 
         cte, he = estimator.get_estimate(observation)
         speed = ground_truth_state[-1]
-        he = ground_truth_state[1]
 
         rudder, throttle = controller.get_input((cte, he, speed))
 
@@ -50,7 +49,14 @@ with xpc3.XPlaneConnect() as client:
         experiment_params["controller"]["speed"],
         simulator_params["simulator"]["time_step"]
     )
-    estimator = TaxiNet(experiment_params["state_estimation"]["model_file"])
+
+    if experiment_params["state_estimation"]["estimator"] == "taxinet":
+        estimator = TaxiNet(
+            experiment_params["state_estimation"]["model_file"], 
+            experiment_params["logging"]["normalization"]
+            )
+    else:
+        estimator = GroundTruthEstimator(xplane)
 
     if experiment_params["logging"]["log_data"]:
         data_recorder = DataRecorder(experiment_params["logging"])

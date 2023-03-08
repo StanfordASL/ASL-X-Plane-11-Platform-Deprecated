@@ -15,14 +15,14 @@ ood:
     - "Motion Blur"
     - "Rain and Motion Blur"
     - "Snow"
-  experiment_time_range: [12,12.1]
+  experiment_time_range: [8,8.1]
 
 controller:
   steering: 
-    P: -0.03
+    P: -0.015
     I: 0.0
     D: 0.0
-    he_ratio: 0.5
+    he_ratio: .5
     input_constraints: [-1, 1]
   speed:
     low_u: 0.0
@@ -38,8 +38,8 @@ logging:
   normalization:
     cte_constant: 10.0
     he_constant: 30.0
-  output_dir: "../Xplane-data-dir/xplane-asl-test/taxinet-03-06-23"
+  output_dir: "../Xplane-data-dir/xplane-asl-test/taxinet-03-07-23"
 
 state_estimation:
-  estimator: "taxinet"
-  model_file: "data/models/taxinet03-02_14-53.pt"
+  estimator: "ground_truth"
+  model_file: "data/models/taxinet03-07_21-00.pt"

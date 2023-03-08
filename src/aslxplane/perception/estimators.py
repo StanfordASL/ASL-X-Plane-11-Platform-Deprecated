@@ -1,14 +1,14 @@
 import torch
-import torch.nn as nn
-import torchvision.transforms as tform
 import numpy as np
-
-from abc import ABC, abstractmethod
+import torch.nn as nn
 import xpc3.xpc3 as xpc3
 import xpc3.xpc3_helper as xpc3_helper
+import torchvision.transforms as tform
+import aslxplane.perception.models as xplane_models
+from abc import ABC, abstractmethod
 
 
-class Estimator:
+class Estimator(ABC):
 
     @abstractmethod
     def __init__(self):
@@ -20,11 +20,11 @@ class Estimator:
     
 class GroundTruthEstimator(Estimator):
 
-    def __init__(self, client):
+    def __init__(self, xplane):
         super(GroundTruthEstimator, self).__init__()
-        self.client = client
+        self.xplane = xplane
 
-    @staticmethod
+
     def get_estimate(self, observation):
         """ Returns the true crosstrack error (meters) and
         heading error (degrees) to simulate fully 
@@ -33,24 +33,20 @@ class GroundTruthEstimator(Estimator):
         Args:
             observation: throwaway argument, queries ground truth from xpc3 client
         """
-        cte, dtp, he = xpc3_helper.getHomeState(self.client)
-        return cte, dtp, he
-
-IMG_SIZE = (128,256)
+        cte, he, dtp, speed = self.xplane.get_ground_truth_state()
+        return cte, he
 
 class TaxiNet(Estimator):
 
-    def __init__(self, model_file):
-        self.model = get_encoder()
-        self.model.load_state_dict(torch.load(model_file))
-        self.model.eval()
+    def __init__(self, model_file, normalization_constants):
+        self.model, image_size = xplane_models.load_checkpoint(model_file)
         self.downsample = tform.Compose([
-            tform.Resize(size=IMG_SIZE),
+            tform.Resize(size=image_size),
             tform.Grayscale(),
             tform.ToTensor()
         ])
-        self.cte_norm_const = 10
-        self.he_norm_const = 30
+        self.cte_norm_const = normalization_constants["cte_constant"]
+        self.he_norm_const = normalization_constants["he_constant"]
 
     def get_estimate(self, observation):
         img = self.downsample(observation)

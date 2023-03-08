@@ -14,7 +14,7 @@ class XPlaneController(controllers.Controller):
             steering_params["I"],
             steering_params["D"],
             0,
-            0.008, # constant offset input reference to compensate for bias in the simulator
+            0.02, # constant offset input reference to compensate for bias in the simulator
             dt,
             steering_params["input_constraints"]
             )

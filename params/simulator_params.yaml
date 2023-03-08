@@ -25,7 +25,7 @@ simulator:
       range: [[0,5], [17,24]]
 
 screenshot_camera: 
-  monitor_id: 2 #specify monitor id when using multiple monitors, else use 1
+  monitor_id: 1 #specify monitor id when using multiple monitors, else use 1
   padding: 100 #crop by x pixles to cut off window ribbons
   height: 200
   width: 360

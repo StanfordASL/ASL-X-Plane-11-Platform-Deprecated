@@ -17,7 +17,7 @@ class Rain(ImageCorruption):
 
     def __init__(self, speed_scale=1, size_scale=1):
         super(Rain, self).__init__()
-        aug = iaa.Rain(speed=(.1,.1) * speed_scale, drop_size=(.6,.4) * size_scale, seed=1)
+        self.aug = iaa.Rain(speed=(.1,.1) * speed_scale, drop_size=(.6,.4) * size_scale, seed=1)
         # self.aug = aug.to_deterministic()
 
     def __str__(self):
