@@ -3,15 +3,8 @@ The ASL's port of the NASA-ULI-Xplane repository. Refactored the ULI-Xplane repo
 ## To Do:
 - [ ] generate mkdocs
 - [ ] reimplement the sinusoid controller for data generation
-- [X] reimplement the data logger
-- [ ] improve code quality of the estimation stack
-- [X] write a scripts and utilities to create a video/gif of an episode
 - [ ] add an episode termination condition if aircraft leaves runway
-- [X] multi-episode trajectory runner (with weights and biases logging)
 - [ ] figure out how to place obstacles on the runway
-- [ ] regress new taxinet model, the heading error estimates are too bad on this one
-- [X] make a note that the new datalogger starts at episode 0 not 1
-
 
 Nice-to-haves:
 - [ ] add utility to load parameter files as mappingproxytypes so that they are read only

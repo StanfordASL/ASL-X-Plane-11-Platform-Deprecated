@@ -8,16 +8,6 @@ import aslxplane.simulation.corruptions as corruptions
 import xpc3.xpc3_helper as xpc3_helper
 from PIL import Image
 
-# bridge needs to do what?
-# needs to
-# 1. retrieve observations from the simulator
-# 2. send given control actions to the simulator
-# 3. pause execution until a timestep has passed in simulator time
-# 4. send out ground truth state measurements
-# 5. XXX assess whether a trajector is completed
-# 6. reset the simulator with a given set of initial conditions
-# 7. TODO: figure out a way to change simulator settings within an episode
-
 class XPlaneBridge:
 
     def __init__(self, client, params):
@@ -115,7 +105,7 @@ class XPlaneBridge:
             in_range(self.get_local_time(), v["range"])
             for k,v 
             in self.params["simulator"]["time_of_day"].items()
-            ])[0][0]
+        ])[0][0]
         return time_of_day, self.params["simulator"]["time_of_day"][time_of_day]["label"]
     
     def get_ground_truth_state(self):
@@ -141,7 +131,7 @@ class XPlaneBridge:
                 for i, corruption_type
                 in enumerate(self.params["screenshot_camera"]["corruption_types"])
                 if corruption_type == str(self.observation_corruption)
-                ]
+            ]
             return corruption[0]
             
     def episode_complete(self):

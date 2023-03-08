@@ -7,17 +7,17 @@ class XPlaneController(controllers.Controller):
         super(XPlaneController, self).__init__(
             dt, 
             [np.array([c1, c2]) for c1, c2 in zip(steering_params["input_constraints"], speed_params["input_constraints"])]
-            )
+        )
         self.he_ratio = steering_params["he_ratio"]
         self.steering_controller = controllers.PID(
             steering_params["P"],
             steering_params["I"],
             steering_params["D"],
             0,
-            0.02, # constant offset input reference to compensate for bias in the simulator
+            steering_params["bias"], # constant offset input reference to compensate for bias in the simulator
             dt,
             steering_params["input_constraints"]
-            )
+        )
         self.speed_controller = controllers.BangBang(
             speed_params["low_u"],
             speed_params["high_u"],

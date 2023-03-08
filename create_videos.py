@@ -2,7 +2,7 @@ import yaml
 import pandas as pd
 from aslxplane.utils.analysis_utils import get_episode_dict, animate_episode_with_traj
 
-data_dir = "../Xplane-data-dir/xplane-asl-test/taxinet-03-06-23/"
+data_dir = "../Xplane-data-dir/xplane-asl-test/taxinet-03-07-23/"
 save_dir = "videos/"
 label_file = "labels.csv"
 real_time_x = 5
