@@ -23,6 +23,8 @@ class XPlaneBridge:
         self.monitor["width"] -= padding
         self.monitor["height"] -= padding
 
+        self.runway_width = self.params["simulator"]["runway_width"]
+
         self.observation_corruption = None
         self.start_time = None
 
@@ -36,7 +38,12 @@ class XPlaneBridge:
         # set simspeed
         self.client.sendDREF("sim/time/sim_speed", self.params["simulator"]["sim_speed"])
         # reset to starting position on the runway
-        xpc3_helper.reset(self.client, dtpInit=self.params["simulator"]["starting_position_pct"] / 100 * self.params["simulator"]["runway_length"])
+        xpc3_helper.reset(
+            self.client, 
+            dtpInit=self.params["simulator"]["starting_position_pct"] / 100 * self.params["simulator"]["runway_length"],
+            cteInit = episode_params["initial_position"]["cte"], 
+            heInit = episode_params["initial_position"]["he"]
+        )
         # other required reset steps
         xpc3_helper.sendBrake(self.client, 0)
 
@@ -137,10 +144,13 @@ class XPlaneBridge:
     def episode_complete(self):
         perc_down_runway = self.get_perc_down_runway()
         curr_time = self.get_zulu_time()
-        is_finished = (perc_down_runway > self.params["simulator"]["ending_position_pct"] or curr_time  - self.start_time > self.params["simulator"]["max_episode_time"])
-        if is_finished:
-            xpc3_helper.reset(self.client)
+        is_finished = perc_down_runway > self.params["simulator"]["ending_position_pct"] \
+                       or curr_time  - self.start_time > self.params["simulator"]["max_episode_time"] \
+                        or self.is_failure()
         return is_finished
+    
+    def is_failure(self):
+        return np.abs(self.get_ground_truth_state()[0]) > self.runway_width
     
 def in_range(time, ranges):
     if type(ranges[0]) == list:

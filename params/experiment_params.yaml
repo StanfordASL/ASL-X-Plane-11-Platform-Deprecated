@@ -3,7 +3,7 @@ initial_position:
   he_range: [-20, 20]
   cte_range: [-6, 6]
 
-num_episodes: 10
+num_episodes: 200
 
 weather_types: [0, 1, 2, 3, 4]
 
@@ -15,32 +15,36 @@ ood:
     - "Motion Blur"
     - "Rain and Motion Blur"
     - "Snow"
-  experiment_time_range: [8,8.1]
+  experiment_time_range: [8,22]
 
 controller:
+  type: "xplane_controller"
   steering: 
     P: -0.015
-    I: 0.0
-    D: 0.0
+    I: -0.00
+    D: -0.00
     he_ratio: .5
-    bias: 0.02
+    bias: 0.008
     input_constraints: [-1, 1]
   speed:
     low_u: 0.0
-    high_u: 0.7
-    nominal_u: 0.5
-    low_speed: 6.0
-    high_speed: 20.0
+    high_u: 0.3
+    nominal_u: 0.15
+    low_speed: 8.0
+    high_speed: 10.0
     input_constraints: [0, 1]
 
 logging:
   log_data: True
-  use_wandb: False
+  use_wandb: True
   normalization:
     cte_constant: 10.0
     he_constant: 30.0
-  output_dir: "../Xplane-data-dir/xplane-asl-test/taxinet-03-07-23"
+  output_dir: "../Xplane-data-dir/xplane-asl-test/taxinet-03-09-23"
+
+debug:
+  perception: False
 
 state_estimation:
-  estimator: "ground_truth"
-  model_file: "data/models/taxinet03-07_21-00.pt"
+  estimator: "taxinet"
+  model_file: "data/models/taxinet03-09_12-55.pt"

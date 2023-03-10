@@ -1,0 +1,45 @@
+
+initial_position:
+  he_range: [-20, 20]
+  cte_range: [-6, 6]
+
+num_episodes: 500
+
+weather_types: [0, 1, 2, 3, 4]
+
+ood:
+  corruption:
+    - "None"
+  experiment_time_range: [8,11.9]
+
+controller:
+  type: "sinusoid_controller"
+  steering: 
+    turn_min: 0.05
+    turn_gain: 0.008
+    he_limit_range: [0,25]
+    cte_bias_range: [-5,5]
+    bias: 0.008
+    input_constraints: [-1, 1]
+  speed:
+    low_u: 0.0
+    high_u: 0.2
+    nominal_u: 0.1
+    low_speed: 3.0
+    high_speed: 5.0
+    input_constraints: [0, 1]
+
+logging:
+  log_data: True
+  use_wandb: False
+  normalization:
+    cte_constant: 10.0
+    he_constant: 30.0
+  output_dir: "../Xplane-data-dir/xplane-asl-test/sinusoids-03-08-23"
+
+debug:
+  perception: False
+
+state_estimation:
+  estimator: "ground_truth"
+  # model_file: "data/models/taxinet03-07_21-00.pt"

@@ -1,7 +1,10 @@
 import os
 import pandas as pd
 import numpy as np
+import wandb
+from copy import copy
 from PIL import Image
+import matplotlib.pyplot as plt
 
 
 class DataRecorder:
@@ -18,6 +21,45 @@ class DataRecorder:
         self.curr_episode = -1
         self.curr_time_step = 0
         self.episode_start_time = None
+        self.wandb_data = None
+
+    def init_wandb_logging(self, experiment_params_file, simulator_params_file):
+        wandb.init(
+            # set the wandb project where this run will be logged
+            project="asl-closed-loop-monitor",
+            config={"yaml":experiment_params_file}
+        )
+        self.wandb_data = {
+            "time_of_day" : [],
+            "weather" : [],
+            "corruption": [],
+            "initial_cte": [],
+            "initial_he": [],
+            "failures": []
+            }
+
+    def log_wandb(self, episode_params, is_failure, observation):
+
+        self.wandb_data["time_of_day"].append(episode_params["start_time"])
+        self.wandb_data["weather"].append(episode_params["weather"])
+        self.wandb_data["corruption"].append(episode_params["ood"]["corruption"])
+        self.wandb_data["initial_cte"].append(episode_params["initial_position"]["cte"])
+        self.wandb_data["initial_he"].append(episode_params["initial_position"]["he"])
+        self.wandb_data["failures"].append(is_failure)
+        
+        log_data = {
+            "time_of_day": wandb_histogram_bug_fixer(self.wandb_data, "time_of_day"),
+            "weather": wandb_histogram_bug_fixer(self.wandb_data, "weather"),
+            "initial_cte": wandb_histogram_bug_fixer(self.wandb_data, "initial_cte"),
+            "initial_he": wandb_histogram_bug_fixer(self.wandb_data, "initial_he"),
+            "failures": wandb_histogram_bug_fixer(self.wandb_data, "failures"),
+            "corruptions": wandb_histogram_bug_fixer(self.wandb_data, "corruption")
+        }
+        log_data["observation"] = wandb.Image(observation)
+        wandb.log(log_data)
+
+    def finish_wandb(self):
+        wandb.finish()
 
     def reset(self):
         """Resets datarecorder after an episode"""
@@ -71,7 +113,7 @@ class DataRecorder:
             append_to_csv(self.label_file, row_data, header=False)
 
         observation.save(self.output_dir + "/" + img_filename)
-
+        
         self.curr_time_step += 1
 
 def append_to_csv(output_file, row_dict, header=False):
@@ -84,5 +126,13 @@ def append_to_csv(output_file, row_dict, header=False):
     """
     row_df = pd.DataFrame([row_dict], columns=list(row_dict.keys()))
     row_df.to_csv(output_file, mode="a", header=header, index=False)
+
+def wandb_histogram_bug_fixer(data, title):
+    table = wandb.Table(
+        data= [[pt] for pt in data[title]],
+        columns=[title]
+    )
+    hist = wandb.plot.histogram(table, title, title=title)
+    return hist
 
 

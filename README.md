@@ -5,6 +5,7 @@ The ASL's port of the NASA-ULI-Xplane repository. Refactored the ULI-Xplane repo
 - [ ] reimplement the sinusoid controller for data generation
 - [ ] add an episode termination condition if aircraft leaves runway
 - [ ] figure out how to place obstacles on the runway
+- [ ] change the toolbar crop pixels from a fixed value to a fraction of the monitor size such that trained xplane controllers can work for many different monitor setups...
 
 Nice-to-haves:
 - [ ] add utility to load parameter files as mappingproxytypes so that they are read only
