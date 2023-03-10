@@ -10,11 +10,11 @@ weather_types: [0, 1, 2, 3, 4]
 ood:
   corruption:
     - "None"
-    - "Noise"
-    - "Rain"
-    - "Motion Blur"
-    - "Rain and Motion Blur"
-    - "Snow"
+    # - "Noise"
+    # - "Rain"
+    # - "Motion Blur"
+    # - "Rain and Motion Blur"
+    # - "Snow"
   experiment_time_range: [8,22]
 
 controller:
@@ -28,22 +28,22 @@ controller:
     input_constraints: [-1, 1]
   speed:
     low_u: 0.0
-    high_u: 0.3
-    nominal_u: 0.15
-    low_speed: 8.0
-    high_speed: 10.0
+    high_u: 0.2
+    nominal_u: 0.1
+    low_speed: 3.0
+    high_speed: 5.0
     input_constraints: [0, 1]
-
+    
 logging:
-  log_data: True
-  use_wandb: True
+  log_data: False
+  use_wandb: False
   normalization:
     cte_constant: 10.0
     he_constant: 30.0
   output_dir: "../Xplane-data-dir/xplane-asl-test/taxinet-03-09-23"
 
 debug:
-  perception: False
+  perception: True
 
 state_estimation:
   estimator: "taxinet"

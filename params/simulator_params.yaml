@@ -1,6 +1,6 @@
 simulator:
   sim_speed: 1.0
-  time_step: 0.25
+  time_step: 1.0
   starting_position_pct: 0.5
   ending_position_pct: 40.0
   max_episode_time: 60.0
