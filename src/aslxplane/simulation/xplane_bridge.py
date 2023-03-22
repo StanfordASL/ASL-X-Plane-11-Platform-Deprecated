@@ -48,18 +48,19 @@ class XPlaneBridge:
         xpc3_helper.sendBrake(self.client, 0)
 
         # Reset the image corruptions:
+        transient_range = [int(t / self.params["simulator"]["time_step"]) for t in episode_params["ood"]["transient_range"]]
         if episode_params["ood"]["corruption"] == "None":
             self.observation_corruption = None
         elif episode_params["ood"]["corruption"] == "Noise":
-            self.observation_corruption = corruptions.Noise()
+            self.observation_corruption = corruptions.Noise(transient_range=transient_range)
         elif episode_params["ood"]["corruption"] == "Rain":
-            self.observation_corruption = corruptions.Rain()
+            self.observation_corruption = corruptions.Rain(transient_range=transient_range)
         elif episode_params["ood"]["corruption"] == "Motion Blur":
-            self.observation_corruption = corruptions.Motionblur()
+            self.observation_corruption = corruptions.Motionblur(transient_range=transient_range)
         elif episode_params["ood"]["corruption"] == "Rain and Motion Blur":
-            self.observation_corruption = corruptions.RainyBlur()
+            self.observation_corruption = corruptions.RainyBlur(transient_range=transient_range)
         elif episode_params["ood"]["corruption"] == "Snow":
-            self.observation_corruption = corruptions.Snow()
+            self.observation_corruption = corruptions.Snow(transient_range=transient_range)
 
         time.sleep(self.params["simulator"]["episode_pause_time"])
         self.client.pauseSim(False)

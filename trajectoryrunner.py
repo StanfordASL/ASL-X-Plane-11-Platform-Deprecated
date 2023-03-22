@@ -9,8 +9,8 @@ from aslxplane.control.xplanecontroller import XPlaneController, SinusoidControl
 from aslxplane.perception.estimators import TaxiNet, GroundTruthEstimator
 from aslxplane.simulation.data_recorder import DataRecorder
 
-experiment_params_file = "params/experiment_params.yaml"
-simulator_params_file = "params/simulator_params.yaml"
+experiment_params_file = "../Xplane-data-dir/xplane-asl-test/test-transients-7/params/experiment_params.yaml"
+simulator_params_file = "../Xplane-data-dir/xplane-asl-test/test-transients-7/params/simulator_params.yaml"
 
 with open(simulator_params_file) as file:
 	simulator_params = yaml.load(file, Loader=yaml.FullLoader)
@@ -21,7 +21,10 @@ def sample_episode_params(experiment_params):
     episode_params = {}
     episode_params["start_time"] = np.random.uniform(*experiment_params["ood"]["experiment_time_range"])
     episode_params["weather"] = np.random.choice(experiment_params["weather_types"])
-    episode_params["ood"] = {"corruption": np.random.choice(experiment_params["ood"]["corruption"])}
+    episode_params["ood"] = {
+        "corruption": np.random.choice(experiment_params["ood"]["corruption"]), 
+        "transient_range":experiment_params["ood"]["transient_time_range"]
+    }
     episode_params["initial_position"] = {
         "he":np.random.uniform(*experiment_params["initial_position"]["he_range"]), 
         "cte":np.random.uniform(*experiment_params["initial_position"]["cte_range"])
