@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 import matplotlib.image as img
 from matplotlib.animation import FuncAnimation
 import matplotlib.animation as animation
+from matplotlib.gridspec import GridSpec
+from PIL import Image
+
 plt.rc('font', size=20)
 plt.rc('font', family='Times New Roman')
 plt.rcParams['legend.fontsize'] = 'large'
@@ -27,6 +30,80 @@ def get_episode_dict(df):
         else:
             episodes[episode].append(i)
     return episodes
+
+def animate_episode_with_ood(data_dir, save_dir, df, episodes, episode_num, simulator_params, experiment_params, model, ood_detector, real_time_x=5):
+    ctes = df.loc[episodes[episode_num], "distance_to_centerline_meters"]
+    dps = df.loc[episodes[episode_num], "downtrack_position_meters"]
+    dp_min = np.min(dps) - 10
+    dp_max = np.max(dps) + 10
+    constraint = simulator_params["simulator"]["runway_width"]
+    time_step = simulator_params["simulator"]['time_step']
+    failure_times = [int(t / time_step) for t in experiment_params["ood"]["transient_time_range"]]
+
+    images = [Image.open(data_dir + df.loc[i, "image_filename"]) for i in episodes[episode_num]]
+    ood_scores = [ood_detector(image) for image in images]
+
+    t_max = len(dps)
+    fig = plt.figure(figsize=(15,9))
+    gs = GridSpec(3, 6, figure=fig)
+    ax1 = fig.add_subplot(gs[:2, 1:5])
+    ax1.xaxis.set_visible(False)
+    ax1.yaxis.set_visible(False)
+    
+
+    ax2 = fig.add_subplot(gs[2, :2])
+    ax2.plot([-1,1000], [-constraint,-constraint], "r--", lw=3, label="constraint")
+    ax2.plot([-1,1000], [constraint,constraint], "r--", lw=3)
+    traj_line = ax2.plot([],[], color="tab:blue", lw=3)[0]
+    ax2.set_xlim(dp_min, dp_max)
+    ax2.set_ylim(-5,11)
+    ax2.grid()
+    ax2.set_xlabel("x (m)")
+    ax2.set_ylabel("y (m)")
+    ax2.set_title("Taxi Trajectory")
+    ax2.legend(loc="lower right", fontsize=18)
+
+    ax3 = fig.add_subplot(gs[2, 2:4])
+    alpha=.5
+    if experiment_params["ood"]["corruption"][0] != "None":
+        ax3.fill_between(failure_times, [-100, -100], [100,100],color="tab:red", label="ood", alpha=alpha)
+    ax3.grid()
+    ax3.set_ylim(0,10)
+    ax3.set_xlim(0,t_max)
+    ax3.set_xlabel("time (s)")
+    ax3.set_ylabel(r"$\|\hat{\mathbf{x}} - \mathbf{x}\|$")
+    ax3.set_title("NN Estimate Errors")
+
+    ax4 = fig.add_subplot(gs[2, 4:])
+    ood_line = ax4.plot([],[], lw=3, color="tab:blue", alpha=1)[0]
+    # ax.set_xlim(0,50)
+    ax4.set_ylim(0,4)
+    ax4.set_xlim(0,t_max)
+    ax4.grid()
+    ax4.set_xlabel("time (s)")
+    ax4.set_ylabel("Anomaly Score")
+    ax4.set_title("OOD Detection")
+    if experiment_params["ood"]["corruption"][0] != "None":
+        ax4.fill_between(failure_times, [-100, -100], [100,100],color="tab:red", label="ood", alpha=alpha)
+    plt.tight_layout()
+    # fig.subplots_adjust(wspace=1, hspace=.2)
+
+    def animate(i):
+        ax1.set_title("Observation, t = %d (s)" % i)
+        ax1.imshow(images[i])
+
+        traj_line.set_data(dps[:i],ctes[:i])
+        ood_line.set_data(np.arange(i), ood_scores[:i])
+
+    print("animating episode %d" % episode_num)
+
+    ani = FuncAnimation(fig, animate, frames=len(episodes[episode_num]))
+
+    print("saving")
+    writer = animation.FFMpegWriter(fps=real_time_x / simulator_params["simulator"]["time_step"])
+
+    ani.save(data_dir + save_dir + "episode_%d_ood.mp4" % episode_num, writer=writer)
+
 
 def animate_episode_with_traj(data_dir, save_dir, df, episodes, episode_num, simulator_params, real_time_x=5):
     ctes = df.loc[episodes[episode_num], "distance_to_centerline_meters"]
