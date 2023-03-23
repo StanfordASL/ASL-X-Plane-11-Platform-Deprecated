@@ -61,6 +61,11 @@ def load_checkpoint(model_file):
         model = get_encoder(model_params)
         model.load_state_dict(checkpoint["model_state_dict"])
         model.eval()
+    elif checkpoint["type"] == "auto-model":
+        model_params = {k:v for k, v in checkpoint.items() if k in ["image_size", "hidden_layers"]}
+        model = AutoEncoder(model_params)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        model.eval()
     return model, checkpoint["image_size"]
 
 #     cnn = nn.Sequential(

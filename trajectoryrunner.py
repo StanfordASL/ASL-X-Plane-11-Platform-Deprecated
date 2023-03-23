@@ -9,8 +9,8 @@ from aslxplane.control.xplanecontroller import XPlaneController, SinusoidControl
 from aslxplane.perception.estimators import TaxiNet, GroundTruthEstimator
 from aslxplane.simulation.data_recorder import DataRecorder
 
-experiment_params_file = "../Xplane-data-dir/xplane-asl-test/test-transients-7/params/experiment_params.yaml"
-simulator_params_file = "../Xplane-data-dir/xplane-asl-test/test-transients-7/params/simulator_params.yaml"
+experiment_params_file = "../Xplane-data-dir/xplane-asl-test/nominal_video/params/experiment_params.yaml" #"params/experiment_params.yaml"
+simulator_params_file = "../Xplane-data-dir/xplane-asl-test/nominal_video/params/simulator_params.yaml" #"params/simulator_params.yaml"
 
 with open(simulator_params_file) as file:
 	simulator_params = yaml.load(file, Loader=yaml.FullLoader)
@@ -114,7 +114,7 @@ with xpc3.XPlaneConnect() as client:
         if experiment_params["logging"]["use_wandb"]:
             data_recorder.log_wandb(episode_params, is_failure, last_observation)
 
-    xplane.reset(episode_params)
+    # xplane.reset(episode_params)
 
     if experiment_params["logging"]["use_wandb"]:
         data_recorder.finish_wandb()

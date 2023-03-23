@@ -61,6 +61,8 @@ class XPlaneBridge:
             self.observation_corruption = corruptions.RainyBlur(transient_range=transient_range)
         elif episode_params["ood"]["corruption"] == "Snow":
             self.observation_corruption = corruptions.Snow(transient_range=transient_range)
+        elif episode_params["ood"]["corruption"] == "Snowing":
+            self.observation_corruption = corruptions.RainySnow(transient_range=transient_range)
 
         time.sleep(self.params["simulator"]["episode_pause_time"])
         self.client.pauseSim(False)
