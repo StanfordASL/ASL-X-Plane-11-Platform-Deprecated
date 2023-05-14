@@ -1,11 +1,11 @@
 
 initial_position:
-  he_range: [-3, 3]
-  cte_range: [-0.5, .5]
+  he_range: [-3, 3] # in degrees
+  cte_range: [-0.5, .5] # in meters
 
 num_episodes: 1
 
-weather_types: [0, 1, 2, 3, 4]
+weather_types: [0, 1, 2, 3, 4] # see simulator params for labels
 
 ood:
   corruption:
@@ -17,9 +17,9 @@ ood:
     - "Snow"
     - "Snowing"
   transient_time_range: 
-    start_time_range: [20,25]
-    end_time_range: [35,40]
-  experiment_time_range: [16,16.1]
+    start_time_range: [20,25] # episode time in seconds
+    end_time_range: [35,40] # episode time in seconds
+  experiment_time_range: [8,18] # time in hours
 
 controller:
   type: "xplane_controller"

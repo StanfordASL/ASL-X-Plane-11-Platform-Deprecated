@@ -27,6 +27,7 @@ class XPlaneBridge:
 
         self.observation_corruption = None
         self.start_time = None
+        self.current_timestep_start_time = None
 
     def reset(self, episode_params):
         """ reset simulator to given initial conditions and wait for a few seconds"""
@@ -67,6 +68,7 @@ class XPlaneBridge:
         time.sleep(self.params["simulator"]["episode_pause_time"])
         self.client.pauseSim(False)
         self.start_time = self.get_zulu_time()
+        self.current_timestep_start_time = self.get_zulu_time()
 
 
     def send_control(self, rudder, throttle, estop=False):
@@ -92,11 +94,11 @@ class XPlaneBridge:
 
     def sleep(self):
         """pauses execution until next timestep in simulator time"""
-        start_time = self.get_zulu_time()
-        end_time = start_time
-        while end_time - start_time < self.params["simulator"]["time_step"]:
+        end_time = self.get_zulu_time()
+        while end_time - self.current_timestep_start_time < self.params["simulator"]["time_step"]:
             time.sleep(0.001)
             end_time = self.get_zulu_time()
+        self.current_timestep_start_time = self.get_zulu_time()
 
     def get_zulu_time(self):
         return self.client.getDREF("sim/time/zulu_time_sec")[0]

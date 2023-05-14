@@ -62,7 +62,7 @@ Quick-start workflow to run an experiment:
 6. run your experiment by calling `trajectoryrunner.py` with your experiment directory as an argument:
     - `python3 trajectoryrunner.py relative-path-to-data-dir/your-data-directory/your-experiment-name/`
 
-Download datasets and quickstart model checkpoints [here](https://drive.google.com/drive/folders/1n_RRKtvQqthSMuK0vbgHUMBw_FAvuwWZ?usp=sharing)
+Download datasets and quickstart model checkpoints [here](https://drive.google.com/drive/folders/1n_RRKtvQqthSMuK0vbgHUMBw_FAvuwWZ?usp=sharing).
 
 ## Citation
 If you use our simulator in your work, please cite its usage as:
