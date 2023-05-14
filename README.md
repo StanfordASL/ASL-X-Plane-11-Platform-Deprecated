@@ -64,6 +64,17 @@ Quick-start workflow to run an experiment:
 
 Download datasets and quickstart model checkpoints [here](https://drive.google.com/drive/folders/1n_RRKtvQqthSMuK0vbgHUMBw_FAvuwWZ?usp=sharing)
 
+## Citation
+If you use our simulator in your work, please cite its usage as:
+```latex 
+@article{SinhaSchmerlingPavone2023,
+    title={Closing the Loop on Runtime Monitors with Fallback Safe MPC},
+    author={Sinha, Rohan and Schmerling, Ed and Pavone, Marco},
+    journal={arXiv preprint arXiv:tbd},
+    year={2023}
+}
+```
+
 ## To Do:
 - [ ] generate mkdocs
 - [ ] figure out how to place obstacles on the runway
