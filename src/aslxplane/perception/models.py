@@ -32,12 +32,10 @@ class AutoEncoder(nn.Module):
         super().__init__()
         self.encoder = get_encoder(params, num_outputs=params["hidden_layers"][-1])
         self.decoder = get_decoder(params)
-        # self.encode_to_latent = nn.ReLU()
         self.params = params
 
     def get_latent(self, x):
         encoding = self.encoder(x)
-        # latent_representation = self.encode_to_latent(encoding)
         latent_representation = encoding
         return latent_representation
 

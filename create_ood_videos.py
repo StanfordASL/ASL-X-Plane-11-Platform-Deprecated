@@ -1,5 +1,3 @@
-import sys
-sys.path.insert(0,'src/')
 import yaml
 import pandas as pd
 from aslxplane.utils.analysis_utils import get_episode_dict, animate_episode_with_ood
@@ -7,6 +5,8 @@ import aslxplane.perception.models as xplanemodels
 import torch.nn as nn
 import torchvision.transforms as tform
 import torch
+from aslxplane.perception.estimators import TaxiNet
+from aslxplane.perception.monitors import AutoEncoderMonitor
 
 
 data_dir = "../Xplane-data-dir/xplane-asl-test/snowy_video/"
@@ -23,14 +23,17 @@ with open(data_dir + "params/experiment_params.yaml") as file:
 df = pd.read_csv(data_dir + label_file)
 episode_dict = get_episode_dict(df)
 
-ood_detector_model, image_size = xplanemodels.load_checkpoint(ood_detector_file)
-downsample = tform.Compose([
-            tform.Resize(size=image_size),
-            tform.Grayscale(),
-            tform.ToTensor()
-])
+monitor = AutoEncoderMonitor(
+    experiment_params["runtime_monitor"]["model_file"],
+    experiment_params["runtime_monitor"]["threshold"]
+)
 
-ood_detector = lambda img: torch.norm(downsample(img) - ood_detector_model(downsample(img))).detach().item()
+perception_model = TaxiNet(
+    experiment_params["state_estimation"]["model_file"],
+    experiment_params["logging"]["normalization"]
+)
+
+triggers_fallback = experiment_params["runtime_monitor"]["monitor"] != "None"
 
 for episode_num in episode_dict.keys():
     animate_episode_with_ood(
@@ -41,7 +44,8 @@ for episode_num in episode_dict.keys():
         episode_num,
         simulator_params,
         experiment_params,
-        None,
-        ood_detector,
-        real_time_x=real_time_x
+        perception_model,
+        monitor,
+        real_time_x=real_time_x,
+        triggers_fallback=triggers_fallback
     )

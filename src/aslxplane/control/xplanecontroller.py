@@ -31,10 +31,15 @@ class XPlaneController(controllers.Controller):
         self.steering_controller.reset()
         self.speed_controller.reset()
 
-    def solve(self, state):
+    def solve(self, state, estop=False):
         cte, he, speed = state
         rudder = self.steering_controller.get_input(cte + self.he_ratio * he)
         throttle = self.speed_controller.get_input(speed)
+
+        if estop:
+            rudder = 0
+            throttle = 0
+
         return rudder, throttle
     
 
@@ -82,3 +87,4 @@ class SinusoidController(controllers.Controller):
             rudder += self.turn_gain
         
         return rudder, throttle
+

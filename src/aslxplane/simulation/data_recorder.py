@@ -9,8 +9,9 @@ import matplotlib.pyplot as plt
 
 class DataRecorder:
 
-    def __init__(self, recorder_params):
+    def __init__(self, recorder_params, output_dir):
         self.params = recorder_params
+        self.params["output_dir"] = output_dir
 
         if not os.path.exists(self.params["output_dir"]):
             os.makedirs(self.params["output_dir"])

@@ -31,18 +31,24 @@ def get_episode_dict(df):
             episodes[episode].append(i)
     return episodes
 
-def animate_episode_with_ood(data_dir, save_dir, df, episodes, episode_num, simulator_params, experiment_params, model, ood_detector, real_time_x=5):
+def animate_episode_with_ood(data_dir, save_dir, df, episodes, episode_num, simulator_params, experiment_params, model, monitor, real_time_x=5, triggers_fallback=True):
     ctes = df.loc[episodes[episode_num], "distance_to_centerline_meters"]
     dps = df.loc[episodes[episode_num], "downtrack_position_meters"]
+    hes = df.loc[episodes[episode_num], "heading_error_degrees"]
     dp_min = np.min(dps) - 10
     dp_max = np.max(dps) + 10
     constraint = simulator_params["simulator"]["runway_width"]
     time_step = simulator_params["simulator"]['time_step']
     failure_times = [int(t / time_step) for t in experiment_params["ood"]["transient_time_range"]]
-
+    # import pdb; pdb.set_trace()
     images = [Image.open(data_dir + df.loc[i, "image_filename"]) for i in episodes[episode_num]]
-    ood_scores = [ood_detector(image) for image in images]
-
+    ood_scores = [monitor.monitor(image, None) for image in images]
+    fallback_triggered = [score[1] for score in ood_scores]
+    ood_scores = [score[0] for score in ood_scores]
+    
+    estimates = np.array([model.get_estimate(img) for img in images])
+    perception_errors = np.linalg.norm(estimates - np.vstack((ctes, hes)).T, axis=1)
+    print(estimates.shape, perception_errors.shape)
     t_max = len(dps)
     fig = plt.figure(figsize=(15,9))
     gs = GridSpec(3, 6, figure=fig)
@@ -66,9 +72,13 @@ def animate_episode_with_ood(data_dir, save_dir, df, episodes, episode_num, simu
     ax3 = fig.add_subplot(gs[2, 2:4])
     alpha=.5
     if experiment_params["ood"]["corruption"][0] != "None":
-        ax3.fill_between(failure_times, [-100, -100], [100,100],color="tab:red", label="ood", alpha=alpha)
+        ax3.fill_between(failure_times, [-100, -100], [100,100],color="tab:red", alpha=alpha)
+        if triggers_fallback:
+            ax3.plot(np.arange(0,t_max), np.ones(t_max) * 4.4, "--", color="tab:red", lw=3, label="error bound")
+            ax3.legend(loc="upper left", fontsize=18)
+    error_line = ax3.plot([],[], lw=3, color="tab:blue", alpha=1)[0]
     ax3.grid()
-    ax3.set_ylim(0,10)
+    ax3.set_ylim(0,19)
     ax3.set_xlim(0,t_max)
     ax3.set_xlabel("time (s)")
     ax3.set_ylabel(r"$\|\hat{\mathbf{x}} - \mathbf{x}\|$")
@@ -79,6 +89,9 @@ def animate_episode_with_ood(data_dir, save_dir, df, episodes, episode_num, simu
     # ax.set_xlim(0,50)
     ax4.set_ylim(0,4)
     ax4.set_xlim(0,t_max)
+    if np.any(fallback_triggered) and triggers_fallback:
+        ax4.plot(np.arange(0,t_max), np.ones(t_max) * monitor.threshold, "--", color="tab:red", lw=3, label="ood trigger")
+        ax4.legend(loc="lower right", fontsize=18)
     ax4.grid()
     ax4.set_xlabel("time (s)")
     ax4.set_ylabel("Anomaly Score")
@@ -92,8 +105,12 @@ def animate_episode_with_ood(data_dir, save_dir, df, episodes, episode_num, simu
         ax1.set_title("Observation, t = %d (s)" % i)
         ax1.imshow(images[i])
 
-        traj_line.set_data(dps[:i],ctes[:i])
-        ood_line.set_data(np.arange(i), ood_scores[:i])
+        if fallback_triggered[i]:
+            ax1.text(120, 150, "Fallback Triggered", color="white", fontsize=30)
+            
+        traj_line.set_data(dps[:i+1],ctes[:i+1])
+        ood_line.set_data(np.arange(min(i+1, len(ood_scores))), ood_scores[:i+1])
+        error_line.set_data(np.arange(min(i+1, len(ood_scores))), perception_errors[:i+1])
 
     print("animating episode %d" % episode_num)
 

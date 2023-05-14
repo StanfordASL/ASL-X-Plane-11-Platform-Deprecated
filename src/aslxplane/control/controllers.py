@@ -19,8 +19,8 @@ class Controller(ABC):
     def solve(self, state):
         raise(NotImplementedError)
 
-    def get_input(self, state):
-        input = self.solve(state)
+    def get_input(self, state, estop=False):
+        input = self.solve(state, estop=estop)
         return np.clip(input, self.input_constraints[0], self.input_constraints[1])
 
     def set_reference(self, state_reference, input_reference):
@@ -48,7 +48,7 @@ class PID(Controller):
 		self.de = 0
 		self.ei = 0
 
-	def solve(self, x):
+	def solve(self, x, estop=False):
 		e = self.state_reference - x
 		de = (e - self.e) / self.dt
 		ei = self.ei + e * self.dt
@@ -79,7 +79,7 @@ class BangBang(Controller):
     def reset(self):
         pass
 
-    def solve(self, x):
+    def solve(self, x, estop=False):
         if self.low_x > x:
             return self.high_u
         elif self.high_x < x:

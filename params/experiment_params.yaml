@@ -5,18 +5,20 @@ initial_position:
 
 num_episodes: 1
 
-weather_types: [4] #[0, 1, 2, 3, 4]
+weather_types: [0, 1, 2, 3, 4]
 
 ood:
   corruption:
     - "None"
-    # - "Noise"
-    # - "Rain"
-    # - "Motion Blur"
-    # - "Rain and Motion Blur"
-    # - "Snow"
-    # - "Snowing"
-  transient_time_range: [20, 40]
+    - "Noise"
+    - "Rain"
+    - "Motion Blur"
+    - "Rain and Motion Blur"
+    - "Snow"
+    - "Snowing"
+  transient_time_range: 
+    start_time_range: [20,25]
+    end_time_range: [35,40]
   experiment_time_range: [16,16.1]
 
 controller:
@@ -42,7 +44,6 @@ logging:
   normalization:
     cte_constant: 10.0
     he_constant: 30.0
-  output_dir: "../Xplane-data-dir/xplane-asl-test/test-transients-6"
 
 debug:
   perception: True
@@ -50,3 +51,8 @@ debug:
 state_estimation:
   estimator: "taxinet"
   model_file: "data/models/taxinet03-09_12-55.pt"
+
+runtime_monitor:
+  monitor: "autoencoder"
+  model_file: "data/models/taxinet-autoencoder03-21_14-21.pt"
+  threshold: 1.8

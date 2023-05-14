@@ -69,9 +69,11 @@ class XPlaneBridge:
         self.start_time = self.get_zulu_time()
 
 
-    def send_control(self, rudder, throttle):
+    def send_control(self, rudder, throttle, estop=False):
         """ reformats and sends the given control action into hte simulator"""
         self.client.sendCTRL([0, rudder, rudder, throttle])
+        if estop:
+            xpc3_helper.sendBrake(self.client, 1)
 
     def get_observation(self):
         """ retrieves the current observation from the simulator, and applies a specified transformation """

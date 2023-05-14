@@ -73,8 +73,6 @@ class Snow(ImageCorruption):
     def __str__(self):
         return "Snow"
 
-
-
 class RainySnow(ImageCorruption):
 
     def __init__(self, 
