@@ -31,15 +31,15 @@ The ASL's port of the NASA-ULI-Xplane repository. Refactored the ULI-Xplane repo
 Quick-start workflow to run an experiment:
 1. create a folder to store your experiment data: `mkdir your-data-directory/your-experiment-name`
 2. copy the template parameter files into your experiment directory:
-    `mkdir your-data-directory/your-experiment-name/params `
-    `cp Xplane-ASL/params/simulator_params.yaml your-data-directory/your-experiment-name/params`
-    `cp Xplane-ASL/params/experiment_params.yaml your-data-directory/your-experiment-name/params`
+    - `mkdir your-data-directory/your-experiment-name/params `
+    - `cp Xplane-ASL/params/simulator_params.yaml your-data-directory/your-experiment-name/params`
+    - `cp Xplane-ASL/params/experiment_params.yaml your-data-directory/your-experiment-name/params`
     Note: if running data-collection to train perception models, use the `sinusoid_dataset_params.yaml` instead of `experiment_params.yaml` template
 3. modify the parameter files to your desired settings
 4. (optionally) to dry-run your experiment setup, initially consider running with params `debug/perception` set to `True` and `logging/log_data` set to `False` and look at the experiment runs to see if it matches desired behavior
 5.  enter the XPLANE-ASL directory: `cd XPlane-ASL/`
 6. run your experiment by calling `trajectoryrunner.py` with your experiment directory as an argument:
-    `python3 trajectoryrunner.py relative-path-to-data-dir/your-data-directory/your-experiment-name/`
+    - `python3 trajectoryrunner.py relative-path-to-data-dir/your-data-directory/your-experiment-name/`
 
 
 
