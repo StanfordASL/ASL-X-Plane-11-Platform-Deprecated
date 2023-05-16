@@ -105,7 +105,7 @@ def animate_episode_with_ood(data_dir, save_dir, df, episodes, episode_num, simu
         ax1.set_title("Observation, t = %d (s)" % i)
         ax1.imshow(images[i])
 
-        if fallback_triggered[i]:
+        if fallback_triggered[i] and triggers_fallback:
             ax1.text(120, 150, "Fallback Triggered", color="white", fontsize=30)
             
         traj_line.set_data(dps[:i+1],ctes[:i+1])
