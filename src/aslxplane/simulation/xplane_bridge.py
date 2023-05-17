@@ -49,21 +49,30 @@ class XPlaneBridge:
         xpc3_helper.sendBrake(self.client, 0)
 
         # Reset the image corruptions:
-        transient_range = [int(t / self.params["simulator"]["time_step"]) for t in episode_params["ood"]["transient_range"]]
+        if episode_params["ood"]["transient_range"]:
+            transient_range = [int(t / self.params["simulator"]["time_step"]) for t in episode_params["ood"]["transient_range"]]
+        else:
+            transient_range = None
+            
+        if episode_params["ood"]["buildup_time"]:
+            num_buildup_steps = int(episode_params["ood"]["buildup_time"] / self.params["simulator"]["time_step"]) 
+        else:
+            num_buildup_steps = None
+
         if episode_params["ood"]["corruption"] == "None":
             self.observation_corruption = None
         elif episode_params["ood"]["corruption"] == "Noise":
-            self.observation_corruption = corruptions.Noise(transient_range=transient_range)
+            self.observation_corruption = corruptions.Noise(transient_range=transient_range, num_buildup_steps=num_buildup_steps)
         elif episode_params["ood"]["corruption"] == "Rain":
-            self.observation_corruption = corruptions.Rain(transient_range=transient_range)
+            self.observation_corruption = corruptions.Rain(transient_range=transient_range, num_buildup_steps=num_buildup_steps)
         elif episode_params["ood"]["corruption"] == "Motion Blur":
-            self.observation_corruption = corruptions.Motionblur(transient_range=transient_range)
+            self.observation_corruption = corruptions.Motionblur(transient_range=transient_range, num_buildup_steps=num_buildup_steps)
         elif episode_params["ood"]["corruption"] == "Rain and Motion Blur":
-            self.observation_corruption = corruptions.RainyBlur(transient_range=transient_range)
+            self.observation_corruption = corruptions.RainyBlur(transient_range=transient_range, num_buildup_steps=num_buildup_steps)
         elif episode_params["ood"]["corruption"] == "Snow":
-            self.observation_corruption = corruptions.Snow(transient_range=transient_range)
+            self.observation_corruption = corruptions.Snow(transient_range=transient_range, num_buildup_steps=num_buildup_steps)
         elif episode_params["ood"]["corruption"] == "Snowing":
-            self.observation_corruption = corruptions.RainySnow(transient_range=transient_range)
+            self.observation_corruption = corruptions.RainySnow(transient_range=transient_range, num_buildup_steps=num_buildup_steps)
 
         time.sleep(self.params["simulator"]["episode_pause_time"])
         self.client.pauseSim(False)

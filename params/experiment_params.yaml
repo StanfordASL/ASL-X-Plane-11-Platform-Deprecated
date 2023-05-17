@@ -17,8 +17,9 @@ ood:
     - "Snow"
     - "Snowing"
   transient_time_range: 
-    start_time_range: [20,25] # episode time in seconds
-    end_time_range: [35,40] # episode time in seconds
+    start_time_range: [20,25] # episode time in seconds, entire episode duration if undefined
+    end_time_range: [35,40] # episode time in seconds, entire episode duration if undefined
+    buildup_time_range: [5,5] # duration in seconds, instantaneous if undefined
   experiment_time_range: [8,18] # time in hours
 
 controller:

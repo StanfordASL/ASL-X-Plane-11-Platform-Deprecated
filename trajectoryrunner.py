@@ -35,7 +35,11 @@ def sample_episode_params(experiment_params):
         "transient_range": [
             np.random.uniform(*experiment_params["ood"]["transient_time_range"]["start_time_range"]),
             np.random.uniform(*experiment_params["ood"]["transient_time_range"]["end_time_range"])
-        ]
+        ] if experiment_params["ood"]["transient_time_range"] else None,
+        "buildup_time": (np.random.uniform(*experiment_params["ood"]["transient_time_range"]["buildup_time_range"])   \
+                         if (experiment_params["ood"]["transient_time_range"] is not None \
+                             and experiment_params["ood"]["transient_time_range"]["buildup_time_range"] is not None) \
+                                else None)
     }
     episode_params["initial_position"] = {
         "he":np.random.uniform(*experiment_params["initial_position"]["he_range"]), 
