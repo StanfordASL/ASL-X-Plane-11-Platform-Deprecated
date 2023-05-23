@@ -1,6 +1,7 @@
 import sys
 import os
 import time
+from pathlib import Path
 import json
 import math
 from copy import copy
@@ -8,38 +9,38 @@ from pathlib import Path
 from multiprocessing import Process, Lock, Array, Event, Value
 from threading import Thread
 
-os.environ["JFI_COPY_NUMPY"] = "0"
-
-import redis
 from tabulate import tabulate
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import interp1d
+import xpc
+import dashing as dsh
 
-try:
-    from ...xpc3 import xpc3 as xpc
-    from . import dynamics
-    from .dynamics import fwd_fn, f_fx_fu_fn, nn_fwd_fn, nn_f_fx_fu_fn
-except ImportError:
-    root_path = Path(__file__).parents[2]
-    if str(root_path) not in sys.path:
-        sys.path.append(str(root_path))
-    # from xpc3.xpc3 import XPlaneConnect
-    import xpc
-    import dynamics
-    from dynamics import fwd_fn, f_fx_fu_fn, nn_fwd_fn, nn_f_fx_fu_fn
-    from lqr import design_LQR_controller
-
-from jfi import jaxm
 from pmpc import Problem
 from pmpc.remote import solve_problems, RegisteredFunction
 from pmpc.experimental.jax.root import all_sensitivity_L
 
+try:
+    from . import dynamics
+    from .lqr import design_LQR_controller
+except ImportError:
+    root_path = Path(__file__).parents[2]
+    if str(root_path) not in sys.path:
+        sys.path.append(str(root_path))
+    import dynamics
+    from lqr import design_LQR_controller
+
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "False"
+os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
+os.environ["JAX_PLATFORM_NAME"] = "CPU"
+os.environ["JAX_ENABLE_X64"] = "True"
+os.environ["JFI_COPY_NUMPY"] = "0"
+
+from jfi import jaxm
+
+####################################################################################################
 
 SPEEDS = {
-    # "airspeed": "sim/flightmodel/position/true_airspeed",
-    # "vertical_speed": "sim/flightmodel/position/vh_ind",
-    # "groundspeed": "sim/flightmodel/position/groundspeed",
     "local_vx": "sim/flightmodel/position/local_vx",
     "local_vy": "sim/flightmodel/position/local_vy",
     "local_vz": "sim/flightmodel/position/local_vz",
@@ -66,8 +67,6 @@ FULL_STATE = {
     "dyaw": "sim/flightmodel/position/R",
 }
 STATE_REF = {
-    # "lat_ref": "sim/flightmodel/position/lat_ref",
-    # "lon_ref": "sim/flightmodel/position/lon_ref",
     "lat_ref": "sim/flightmodel/position/latitude",
     "lon_ref": "sim/flightmodel/position/longitude",
 }
@@ -90,29 +89,22 @@ def deg2rad(x):
 
 
 class TakeoffController:
-    def __init__(self, rconn: redis.Redis):
+    def __init__(self):
         self.xp = xpc.XPlaneConnect()
         self.flight_state = FlightState()
         time.sleep(0.3)
         self.int_state = np.zeros(6)
         self.state0, self.posi0 = self.get_curr_state(), self.xp.getPOSI()
-        self.rconn = rconn
 
         # touchdown
         self.v_ref = 50.0
         self.params = dict()
         self.params["pos_ref"] = np.array([0.0, 0.0, 300.0])
         self.params["ang_ref"] = np.array([deg2rad(0.0), 0.0, deg2rad(self.posi0[5])])
-        #self.params["ang_ref"] = np.array([deg2rad(0.0), 0.0, 4.0])
-
-        # cruise
-        # self.v_ref = 60.0
-        # self.params["pos_ref"] = np.array([0.0, 0.0, 100.0])
-        # self.params["ang_ref"] = np.array([deg2rad(0.0), 0.0, 4.0])
 
         self.brake(0)
         self.t_start = time.time()
-        T, self.dt = 150.0, 0.5
+        T, self.dt = 600.0, 0.5
         N = math.ceil(T / self.dt)
         self.u_random = 3e-1 * np.random.randn(*(N, 4))
         self.u_random[: round(5.0 / self.dt), :] = 0
@@ -125,13 +117,25 @@ class TakeoffController:
         self.lock = Lock()
         self.ts, self.X, self.U, self.Ls = None, None, None, None
         self.done = False
-
         self.reset()
+
         if self.controller == "mpc":
             self.mpc_thread = Thread(target=self.mpc_worker, args=(self.lock,))
             self.mpc_thread.start()
         else:
             self.mpc_thread = None
+
+        # define UI display
+        self.ui = dsh.VSplit(
+            dsh.HSplit(
+                dsh.Text(title="State", text="", border_color=2, color=2),
+                dsh.Text(title="Control", text="", border_color=2, color=2),
+            ),
+            dsh.Log(title="Debug", border_color=2, color=2),
+        )
+        self.last_ui_update = time.time()
+
+        self.data = dict()
 
         dt_small = 1.0 / 50.0
         t_prev = 0.0
@@ -141,7 +145,7 @@ class TakeoffController:
                 self.control()
                 #self.advance_state(dt_small)
                 sleep_for = max(0, dt_small - (time.time() - t_prev))
-                print(f"Sleeping for {sleep_for:.4e} s")
+                # print(f"Sleeping for {sleep_for:.4e} s")
                 time.sleep(sleep_for)
                 self.it += 1
         except KeyboardInterrupt:
@@ -163,7 +167,6 @@ class TakeoffController:
         for _ in range(1):
             self.xp.pauseSim(True)
             # arrest speed
-            posi0 = list(copy(self.posi0))
             self.xp.sendPOSI(self.posi0)
             self.xp.sendDREFs(list(SPEEDS.values()), [0 for _ in SPEEDS.values()])
             # arrest rotation
@@ -172,13 +175,14 @@ class TakeoffController:
             self.xp.sendCTRL(self.build_control())
             self.brake()
 
-            posi0[2] = 300
+            posi = list(copy(self.posi0))
+            posi[2] = 300
             dist = 5e3
-            posi0[0] += dist / DEG_TO_METERS * -math.cos(deg2rad(posi0[5]))
-            posi0[1] += dist / DEG_TO_METERS * -math.sin(deg2rad(posi0[5])) + -3e3 / DEG_TO_METERS
-            self.xp.sendPOSI(posi0)
+            posi[0] += dist / DEG_TO_METERS * -math.cos(deg2rad(posi[5])) - 3e1 / DEG_TO_METERS
+            posi[1] += dist / DEG_TO_METERS * -math.sin(deg2rad(posi[5])) + 3e3 / DEG_TO_METERS
+            self.xp.sendPOSI(posi)
             v = 60.0
-            vx, vz = v * math.sin(deg2rad(posi0[5])), v * -math.cos(deg2rad(posi0[5]))
+            vx, vz = v * math.sin(deg2rad(self.posi0[5])), v * -math.cos(deg2rad(self.posi0[5]))
             self.xp.sendDREFs([SPEEDS["local_vx"], SPEEDS["local_vz"]], [vx, vz])
 
             self.xp.pauseSim(False)
@@ -198,11 +202,10 @@ class TakeoffController:
     ################################################################################
 
     def read_dynamics(self):
-        from pathlib import Path
-        dynamics_path = Path(__file__).absolute().parents[3] / "notebooks" / "data" / "dynamics_new2.json"
-        #dynamics_state = json.loads(self.rconn.get("flight/dynamics_new2"))
+        dynamics_path = (
+            Path(__file__).absolute().parents[3] / "notebooks" / "data" / "dynamics_new2.json"
+        )
         dynamics_state = json.loads(dynamics_path.read_text())
-        # fn = getattr(dynamics, dynamics_state["name"])
         fn = getattr(dynamics, "int_f_fx_fu_fn2")
         self.params.update({k: jaxm.array(v) for (k, v) in dynamics_state["params"].items()})
         params = copy(self.params)
@@ -221,161 +224,86 @@ class TakeoffController:
         p = Problem(N=10, xdim=11 + 6, udim=4)
         p.f_fx_fu_fn = self.f_fx_fu_fn
         p.x0 = state
-        # p.reg_x, p.reg_u = 1e-5 * np.ones(2)
-        # p.reg_x, p.reg_u = 1e-5 * np.ones(2)
         p.reg_x, p.reg_u = 3e-5 * np.ones(2)
         p.solver_settings = dict(p.solver_settings, solver="osqp")
         u_u = np.ones((p.N, p.udim))
         u_l = np.concatenate([-np.ones((p.N, p.udim - 1)), np.zeros((p.N, 1))], axis=-1)
         p.u_l, p.u_u = u_l, u_u
         x_l, x_u = -1e5 * np.ones(p.xdim), 1e5 * np.ones(p.xdim)
-        # x_l[2] = 30.0
-        # p.x_l, p.x_u = np.tile(x_l, (p.N, 1)), np.tile(x_u, (p.N, 1))
         x_ref = np.copy(p.x0)
 
         dist = np.linalg.norm(self.target[:2] - p.x0[:2])
 
         # for lqr #####################################################
-        # x_cost_scale = (
-        #    [1e-9, 1e-9, 1e1]  # position
-        #    + [1e1, 1e1]  # velocities
-        #    + [1e1, 1e3, 1e4]  # angles
-        #    + [1e0, 1e0, 1e0]  # angular rate
-        #    + [1e-9, 1e-9, 1e-9]  # integrated position
-        #    + [1e-9, 3e-9, 1e-9]  # integrated angles
-        # )
-        #roll_cost = max(1e5 * (1 - (time.time() - self.t_start) / 20.0), 0) + 3e3
-        #roll_cost = max(1e6 * (1 - (time.time() - self.t_start) / 20.0), 0) + 1e4
-        #roll_cost = max(1e6 * (1 - (time.time() - self.t_start) / 20.0), 0) + 3e4
-        #pitch_cost = max(1e7 * (1 - (time.time() - self.t_start) / 20.0), 0) + 1e0
-        #roll_cost = max(1e6 * (1 - (time.time() - self.t_start) / 20.0), 0) + 3e4
-        pitch_cost = max(1e6 * (1 - (time.time() - self.t_start) / 10.0), 0) + 1e0
-        roll_cost = 3e4
-        #roll_cost = 1e5
-        pos_cost = 1e0
-        x_cost_scale = (
-            #[3e-1, 3e-1, 1e2]
-            #[1e0, 1e0, 1e2]
-            #[3e0, 3e0, 1e2]
-            [pos_cost, pos_cost, 1e2]
-            #[3e0 / (dist / 100), 3e0 / (dist / 100), 1e2]
-            + [1e3, 1e0]
-            #+ [1e0, 3e3, 1e4]
-            #+ [1e0, 3e4, 1e3]
-            + [pitch_cost, roll_cost, 1e5]
-            + [1e-3, 1e-3, 1e-3]
-            + [0 * 1e-3, 0 * 1e-3, 0 * 1e-3]
-            + [0 * 1e-3, 0 * 1e-3, 0 * 1e-3]
+        q_diag = (
+            np.array(
+                [1e0, 1e0, 1e2]
+                + [1e3, 1e0]
+                + [1e0, 3e4, 1e5]
+                + [1e-3, 1e-3, 1e-3]
+                + [0 * 1e-3, 0 * 1e-3, 0 * 1e-3]
+                + [0 * 1e-3, 0 * 1e-3, 0 * 1e-3]
+            )
+            / 1e3
         )
 
-        # for heading target ##########################################
-        # x_cost_scale = (
-        #    [1e2, 1e2, 1e3]  # position
-        #    + [1e2, 1e2]  # velocities
-        #    + [1e2, 1e6, 1e6]  # angles
-        #    + [1e3, 1e2, 1e2]  # angular rate
-        #    + [1e-9, 1e-9, 1e3]  # integrated position
-        #    #+ [1e-9, 3e5, 1e6]  # integrated angles
-        #    + [1e-9, 3e4, 1e4]  # integrated angles
-        #    #+ [1e-9, 1e-9, 1e-9]  # integrated angles
-        # )
-
-        # for landing #################################################
-        # x_cost_scale = (
-        #    [3e1, 3e1, 1e4]  # position
-        #    + [1e2, 1e2]  # velocities
-        #    + [1e2, 1e3, 1e3]  # angles
-        #    + [1e3, 1e2, 1e2]  # angular rate
-        #    + [1e-9, 1e-9, 1e-9]  # integrated position
-        #    + [1e-9, 1e-9, 1e-9]  # integrated angles
-        # )
-        x_cost_scale = np.array(x_cost_scale) / 1e3
-        q_diag = x_cost_scale
-
-        ang = deg2rad(self.posi0[5])
-        #ang = 2.0
-
+        approach_ang = deg2rad(self.posi0[5])
         Q = np.diag(q_diag)
-        #c, s = math.cos(ang), math.sin(ang)
-        #Qx = np.diag([1e-1, 1e0]) / 1e3
-        #R = np.array([[c, -s], [s, c]])
-        #Q[:2, :2] = np.linalg.inv(R).T @ Qx @ np.linalg.inv(R)
-        #Q[:2, :2] = R.T @ Qx @ R
-
-        # x_ref[:2] = p.x0[:2]  # positions
-        #ang = 4.0
-        v_norm = np.array([math.cos(ang), math.sin(ang)])
-        #v_norm = np.array([-math.sin(ang), -math.cos(ang)])
+        v_norm = np.array([math.cos(approach_ang), math.sin(approach_ang)])
 
         dx = np.array(self.target[:2]) - np.array(p.x0[:2])
         v_par = np.sum(dx * v_norm) * v_norm
         v_perp = dx - v_par
-        d_par = math.sqrt(max(5e2 ** 2 - np.linalg.norm(v_perp) ** 2, 0)) / np.linalg.norm(v_par)
-        x_ref[:2] = p.x0[:2] + max(np.linalg.norm(v_perp), 1e2) * v_perp / np.linalg.norm(v_perp) + d_par * v_par
+        self.ui.items[1].append(f"Distance to approach line: {np.linalg.norm(v_perp):.4e} m")
+        d_par = math.sqrt(max(5e2**2 - np.linalg.norm(v_perp) ** 2, 0)) / np.linalg.norm(v_par)
+        x_ref[:2] = (
+            p.x0[:2]
+            + max(np.linalg.norm(v_perp), 1e2) * v_perp / np.linalg.norm(v_perp)
+            + d_par * v_par
+        )
 
         if not hasattr(self, "cost_approx"):
+
             def cost_fn(x0, target, v_norm):
+                """Compute a position cost as a scalar."""
                 dx = target[:2] - x0[:2]
                 v_par = jaxm.sum(dx * v_norm) * v_norm
                 v_perp = dx - v_par
-                v_perp_norm2 = jaxm.sum(v_perp ** 2)
-                fwd_goal = jaxm.sum((1e3 * v_par / jaxm.linalg.norm(v_par)) ** 2)
-                #alpha = 5e2 ** 2
-                #return 1e0 * jaxm.tanh(v_perp_norm2 / alpha) * alpha
-                #return 1e0 * v_perp_norm2 / (1.0 + v_perp_norm2 / alpha)
-                #mag = jaxm.minimum(v_perp_norm2, 1e6) / v_perp_norm2
-                #alpha = 1e-6
-                #mag = jaxm.softmax(-alpha * jaxm.array([v_perp_norm2, 1e5]))[0]
-                #return (0 * 3e0 * mag * v_perp_norm2 / 2 + 1e0 * fwd_goal / 2)
-                #mag = jaxm.minimum(v_perp_norm2, 1e6) / v_perp_norm2
-                #return (3e0 * v_perp_norm2 / 2 + 1e0 * fwd_goal / 2)
-                #return (1e4 * v_perp_norm2 / v_perp_norm2 + 1e0 * fwd_goal / 2)
-
-                #return (3e2 * jaxm.linalg.norm(v_perp) + 3e1 * jaxm.linalg.norm(v_par))
-                #return (1e2 * jaxm.linalg.norm(v_perp) + 3e1 * jaxm.linalg.norm(v_par))
-                #return (3e2 * jaxm.minimum(jaxm.linalg.norm(v_perp), 1e1 * v_perp_norm2) + 3e1 * jaxm.linalg.norm(v_par))
+                v_perp_norm2 = jaxm.sum(v_perp**2)
+                # Huber-like loss on the y-position distance from the approach line
                 Jvp = jaxm.minimum(jaxm.linalg.norm(v_perp), 1e-3 * v_perp_norm2)
-                #return (3e2 * Jvp + 3e1 * jaxm.linalg.norm(v_par))
-                return (1e3 * Jvp + 3e1 * jaxm.linalg.norm(v_par))
-            
+                return 1e3 * Jvp + 3e1 * jaxm.linalg.norm(v_par)
+
             @jaxm.jit
             def cost_approx(x0, target, v_norm):
+                """Develop a quadratic approximation of the cost function based on a scalar cost."""
                 g = jaxm.grad(cost_fn, argnums=0)(x0, target, v_norm)
                 H = jaxm.hessian(cost_fn, argnums=0)(x0, target, v_norm)
                 Q = H + 1e-3 * jaxm.eye(H.shape[-1])
-                #ref = jaxm.linalg.solve(Q, g) - x0
                 ref = x0 - jaxm.linalg.solve(Q, g)
                 return Q, ref
 
             self.cost_approx = cost_approx
-        
 
-        x_ref[2] = max(0, self.params["pos_ref"][2] * (dist / 5e3))  # altitude
-        #x_ref[2] = 300.0  # altitude
+        x_ref[2] = min(
+            max(self.posi0[2], self.params["pos_ref"][2] * (dist / 5e3)), 300.0
+        )  # altitude
         x_ref[3:5] = self.v_ref, 0.0  # velocities
-        #x_ref[3:5] = 60.0, 0.0  # velocities
         x_ref[5:8] = self.params["ang_ref"]
         x_ref[8:11] = 0  # dangles
         x_ref[11:] = 0  # integrated errors
 
         Qx, refx = self.cost_approx(p.x0[:2], np.array(self.target)[:2], np.array(v_norm))
-        print(f"Q_norm = {np.linalg.norm(Qx)}, ref_norm = {np.linalg.norm(refx)}")
         x_ref[:2] = refx[:2]
         Q[:2, :2] = Qx[:2, :2] / 1e3
 
         p.X_ref = x_ref
         p.Q = Q
-        # p.Q[:-1, :, :] *= 3e-1
-        # p.Q[-1, :, :] *= 3e0
-
-        # p.R = np.diag(np.array([1e3, 3e2, 3e4, 1e-1])) * 3e0
-        # p.R = np.diag(np.array([1e3, 3e2, 3e4, 1e-1])) * 1e1
-        #p.R = np.diag(np.array([1e0, 1e0, 1e3, 1e0])) * 3e-2
         p.R = np.diag(np.array([1e0, 3e-1, 1e2, 1e0])) * 1e-1
         p.U_ref = np.array([0.0, 0.0, 0.0, 0.0])
         p.slew_rate = 1e2
-        # p.slew_rate = 1e0
 
+        # interpolate previoous solution for MPC warm start
         if hasattr(self, "t_prev"):
             t_int = self.get_curr_time() + self.dt * np.arange(p.N + 1)
             opts = dict(axis=0, fill_value="extrapolate")
@@ -408,6 +336,7 @@ class TakeoffController:
     ################################################################################
 
     def control(self):
+        """Compute and apply the control action."""
         if self.controller == "pid" or (self.controller == "mpc" and self.X is None):
             state = self.get_curr_state()
             pitch, roll, heading = state[5:8]
@@ -416,66 +345,46 @@ class TakeoffController:
             u_roll = -1.0 * (roll - roll_ref)
             u_heading = -1.0 * (30.0 / state[3]) * (heading - heading_ref)
             throttle = 0.7
-
-            # u = np.array([u_pitch, u_roll, u_heading, throttle]) + self.u_random[self.it, :]
             u = np.array([u_pitch, u_roll, u_heading, throttle])
         elif self.controller == "mpc":
             with self.lock:
                 ts, X, U, Ls = self.ts, self.X, self.U, self.Ls
             curr_time, state = self.get_curr_time(), self.get_curr_state()
-            # try:
             opts = dict(axis=0, fill_value="extrapolate")
             x = interp1d(ts, X, **opts)(curr_time)
             u = interp1d(ts[:-1], U, **opts)(curr_time)
             u = u + Ls[0, :, :] @ (state - x)
-            # except ValueError:
-            #    u = np.zeros(4)
-
-            # plt.figure(45453)
-            # plt.clf()
-            ##plt.plot(self.ts, self.X[:, 5], label="pitch")
-            ##plt.plot(self.ts, self.X[:, 6], label="roll")
-            ##plt.plot(self.ts, self.X[:, 7], label="yaw")
-            ##plt.scatter(curr_time, self.get_curr_state()[6], label="roll-x")
-            # plt.plot(self.ts[:-1], self.U[:, 0], label="pitch")
-            # plt.plot(self.ts[:-1], self.U[:, 1], label="roll")
-            # plt.plot(self.ts[:-1], self.U[:, 2], label="yaw")
-            # plt.plot(self.ts[:-1], self.U[:, 3], label="throttle")
-            # plt.ylim([-1.2, 1.2])
-            # plt.legend()
-            # plt.draw()
-            # plt.pause(1e-2)
-            # self.v_ref = 35.0 / (1 + 0.05 * (time.time() - self.t_start))
         elif self.controller == "lqr":
             state = self.get_curr_state()
             p = self.construct_problem(state)
             Q, R, x_ref, u_ref = p.Q[0, :, :], p.R[0, :, :], p.X_ref[0, :], p.U_ref[0, :]
-            print(f"Distance to x_ref: {np.linalg.norm(state[:2] - p.X_ref[0, :2]):.4e}")
+            # print(f"Distance to x_ref: {np.linalg.norm(state[:2] - p.X_ref[0, :2]):.4e}")
             u0 = np.zeros(p.udim)
             f, fx, fu = p.f_fx_fu_fn(state, u0)
             A, B, d = fx, fu, f - fx @ state - fu @ u0
             L, l = design_LQR_controller(A, B, d, Q, R, x_ref, u_ref, T=10)
             u = L @ state + l
-            #if abs(state[6]) > 0.1:
-            #    u = np.array(u)
-            #    u[1] = -0.3 * (state[6] - 0.1)
 
-        # construct history
-        # self.u_hist.append([u_pitch, u_roll, u_heading, throttle])
-        # self.x_hist.append(state)
-        # self.t_hist.append(self.sim_time)
-
-        # print(f"pitch: {u_pitch}, roll: {u_roll}, heading: {u_heading}")
         u_pitch, u_roll, u_heading, throttle = np.clip(u, [-1, -1, -1, 0], [1, 1, 1, 1])
         if state[2] < 5.0:
-            if not hasattr(self, "fixed_pitch"):
-                self.fixed_pitch = u_pitch - 0.05
-            u_pitch, u_roll, u_heading, throttle = self.fixed_pitch, 0.0, 0.0, 0.0
+            self.data.setdefault("fixed_pitch", u_pitch - 0.05)
+            u_pitch, u_roll, u_heading, throttle = self.data["fixed_pitch"], 0.0, 0.0, 0.0
             self.brake(1)
-        print(tabulate([state[:11]], floatfmt="+.1e"))
         ctrl = self.build_control(pitch=u_pitch, roll=u_roll, yaw=u_heading, throttle=throttle)
-        print(tabulate([ctrl], floatfmt="+.1e"))
+
         self.xp.sendCTRL(ctrl)
+
+        if time.time() - self.last_ui_update > 0.33:
+            state_names = list(FULL_STATE.keys())[:11]
+            self.ui.items[0].items[0].text = "\n".join(
+                [f"{name:<10s} {s:+07.4e}" for (name, s) in zip(state_names, state[:11])]
+            )
+            ctrl_names = ["pitch", "roll", "yaw", "throttle"]
+            self.ui.items[0].items[1].text = "\n".join(
+                [f"{name:<10s} {c:+07.4e}" for (name, c) in zip(ctrl_names, ctrl)]
+            )
+            self.last_ui_update = time.time()
+            self.ui.display()
 
     ################################################################################
 
@@ -570,18 +479,17 @@ class FlightState:
 
 ####################################################################################################
 def main():
-    r = redis.Redis(password=os.environ["REDIS_PASSWORD"])
-    controller = TakeoffController(rconn=r)
+    controller = TakeoffController()
     controller.close()
-    hist = {
-        "x": controller.x_hist,
-        "u": controller.u_hist,
-        "t": controller.t_hist,
-    }
-    i = 0
-    while len(r.keys(f"flight/new_hist{i}")) > 0:
-        i += 1
-    r.set(f"flight/new_hist{i}", json.dumps(hist))
+    # hist = {
+    #    "x": controller.x_hist,
+    #    "u": controller.u_hist,
+    #    "t": controller.t_hist,
+    # }
+    # i = 0
+    # while len(r.keys(f"flight/new_hist{i}")) > 0:
+    #    i += 1
+    # r.set(f"flight/new_hist{i}", json.dumps(hist))
 
 
 if __name__ == "__main__":
