@@ -175,7 +175,7 @@ class TakeoffController:
             posi0[2] = 300
             dist = 5e3
             posi0[0] += dist / DEG_TO_METERS * -math.cos(deg2rad(posi0[5]))
-            posi0[1] += dist / DEG_TO_METERS * -math.sin(deg2rad(posi0[5])) + 2e3 / DEG_TO_METERS
+            posi0[1] += dist / DEG_TO_METERS * -math.sin(deg2rad(posi0[5])) + -3e3 / DEG_TO_METERS
             self.xp.sendPOSI(posi0)
             v = 60.0
             vx, vz = v * math.sin(deg2rad(posi0[5])), v * -math.cos(deg2rad(posi0[5]))
@@ -256,10 +256,10 @@ class TakeoffController:
             #[3e0, 3e0, 1e2]
             [pos_cost, pos_cost, 1e2]
             #[3e0 / (dist / 100), 3e0 / (dist / 100), 1e2]
-            + [1e2, 1e0]
+            + [1e3, 1e0]
             #+ [1e0, 3e3, 1e4]
             #+ [1e0, 3e4, 1e3]
-            + [pitch_cost, roll_cost, 1e0]
+            + [pitch_cost, roll_cost, 1e5]
             + [1e-3, 1e-3, 1e-3]
             + [0 * 1e-3, 0 * 1e-3, 0 * 1e-3]
             + [0 * 1e-3, 0 * 1e-3, 0 * 1e-3]
@@ -302,24 +302,51 @@ class TakeoffController:
         # x_ref[:2] = p.x0[:2]  # positions
         #ang = 4.0
         v_norm = np.array([math.cos(ang), math.sin(ang)])
-        #x_ref[:2] = np.array(self.target[:2]) - (4.5e3 * (1.0 - (time.time() - self.t_start) / 90.0)) * v_norm
+        #v_norm = np.array([-math.sin(ang), -math.cos(ang)])
+
         dx = np.array(self.target[:2]) - np.array(p.x0[:2])
         v_par = np.sum(dx * v_norm) * v_norm
         v_perp = dx - v_par
         d_par = math.sqrt(max(5e2 ** 2 - np.linalg.norm(v_perp) ** 2, 0)) / np.linalg.norm(v_par)
-        #d_par = np.linalg.norm(v_perp) / np.linalg.norm(v_par)
-
-
-
         x_ref[:2] = p.x0[:2] + max(np.linalg.norm(v_perp), 1e2) * v_perp / np.linalg.norm(v_perp) + d_par * v_par
-        #v_target = v_perp + d_par * v_par / np.linalg.norm(v_par)
-        #x_ref[:2] = p.x0[:2] + 2e3 * v_target / np.linalg.norm(v_target)
 
+        if not hasattr(self, "cost_approx"):
+            def cost_fn(x0, target, v_norm):
+                dx = target[:2] - x0[:2]
+                v_par = jaxm.sum(dx * v_norm) * v_norm
+                v_perp = dx - v_par
+                v_perp_norm2 = jaxm.sum(v_perp ** 2)
+                fwd_goal = jaxm.sum((1e3 * v_par / jaxm.linalg.norm(v_par)) ** 2)
+                #alpha = 5e2 ** 2
+                #return 1e0 * jaxm.tanh(v_perp_norm2 / alpha) * alpha
+                #return 1e0 * v_perp_norm2 / (1.0 + v_perp_norm2 / alpha)
+                #mag = jaxm.minimum(v_perp_norm2, 1e6) / v_perp_norm2
+                #alpha = 1e-6
+                #mag = jaxm.softmax(-alpha * jaxm.array([v_perp_norm2, 1e5]))[0]
+                #return (0 * 3e0 * mag * v_perp_norm2 / 2 + 1e0 * fwd_goal / 2)
+                #mag = jaxm.minimum(v_perp_norm2, 1e6) / v_perp_norm2
+                #return (3e0 * v_perp_norm2 / 2 + 1e0 * fwd_goal / 2)
+                #return (1e4 * v_perp_norm2 / v_perp_norm2 + 1e0 * fwd_goal / 2)
 
+                #return (3e2 * jaxm.linalg.norm(v_perp) + 3e1 * jaxm.linalg.norm(v_par))
+                #return (1e2 * jaxm.linalg.norm(v_perp) + 3e1 * jaxm.linalg.norm(v_par))
+                #return (3e2 * jaxm.minimum(jaxm.linalg.norm(v_perp), 1e1 * v_perp_norm2) + 3e1 * jaxm.linalg.norm(v_par))
+                Jvp = jaxm.minimum(jaxm.linalg.norm(v_perp), 1e-3 * v_perp_norm2)
+                #return (3e2 * Jvp + 3e1 * jaxm.linalg.norm(v_par))
+                return (1e3 * Jvp + 3e1 * jaxm.linalg.norm(v_par))
+            
+            @jaxm.jit
+            def cost_approx(x0, target, v_norm):
+                g = jaxm.grad(cost_fn, argnums=0)(x0, target, v_norm)
+                H = jaxm.hessian(cost_fn, argnums=0)(x0, target, v_norm)
+                Q = H + 1e-3 * jaxm.eye(H.shape[-1])
+                #ref = jaxm.linalg.solve(Q, g) - x0
+                ref = x0 - jaxm.linalg.solve(Q, g)
+                return Q, ref
 
-        #x_ref[:2] = self.target[:2]
-        #x_ref[:2] = p.x0[:2]
-        # x_ref[2] = max(0, self.params["pos_ref"][2] - 300 / 90.0 * (time.time() - self.t_start)) # altitude
+            self.cost_approx = cost_approx
+        
+
         x_ref[2] = max(0, self.params["pos_ref"][2] * (dist / 5e3))  # altitude
         #x_ref[2] = 300.0  # altitude
         x_ref[3:5] = self.v_ref, 0.0  # velocities
@@ -327,6 +354,11 @@ class TakeoffController:
         x_ref[5:8] = self.params["ang_ref"]
         x_ref[8:11] = 0  # dangles
         x_ref[11:] = 0  # integrated errors
+
+        Qx, refx = self.cost_approx(p.x0[:2], np.array(self.target)[:2], np.array(v_norm))
+        print(f"Q_norm = {np.linalg.norm(Qx)}, ref_norm = {np.linalg.norm(refx)}")
+        x_ref[:2] = refx[:2]
+        Q[:2, :2] = Qx[:2, :2] / 1e3
 
         p.X_ref = x_ref
         p.Q = Q
@@ -336,7 +368,7 @@ class TakeoffController:
         # p.R = np.diag(np.array([1e3, 3e2, 3e4, 1e-1])) * 3e0
         # p.R = np.diag(np.array([1e3, 3e2, 3e4, 1e-1])) * 1e1
         #p.R = np.diag(np.array([1e0, 1e0, 1e3, 1e0])) * 3e-2
-        p.R = np.diag(np.array([1e0, 1e0, 1e3, 1e0])) * 1e0
+        p.R = np.diag(np.array([1e0, 3e-1, 1e2, 1e0])) * 1e-1
         p.U_ref = np.array([0.0, 0.0, 0.0, 0.0])
         p.slew_rate = 1e2
         # p.slew_rate = 1e0
@@ -447,7 +479,8 @@ class TakeoffController:
     def close(self):
         self.flight_state.close()
         self.done = True
-        self.mpc_thread.join()
+        if self.mpc_thread is not None:
+            self.mpc_thread.join()
 
 
 ####################################################################################################
