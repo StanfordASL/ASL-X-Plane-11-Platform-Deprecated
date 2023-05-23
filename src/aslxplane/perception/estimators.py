@@ -51,7 +51,7 @@ class TaxiNet(Estimator):
     def get_estimate(self, observation):
         img = self.downsample(observation)
         with torch.no_grad():
-            pred = self.model(img).squeeze()
+            pred = self.model(img.unsqueeze(0)).squeeze()
         cte = pred[0].item() * self.cte_norm_const
         he = pred[1].item() * self.he_norm_const
         return cte, he

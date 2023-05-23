@@ -26,6 +26,52 @@ def get_decoder(params):
     )
     return decoder
 
+def get_conv_block(in_channels, out_channels, kernel_size=3, stride=1):
+    conv_block = nn.Sequential(
+        nn.Conv2d(
+            in_channels=in_channels, 
+            out_channels=out_channels, 
+            kernel_size=kernel_size,
+            stride=stride
+        ),
+        nn.BatchNorm2d(out_channels),
+        nn.ReLU()
+    )
+    return conv_block
+
+class SimpleConvNet(nn.Module):
+
+    def __init__(self, params, num_outputs=2):
+        super().__init__()
+        self.conv_layers = nn.Sequential(*[
+            get_conv_block(
+                in_channels, 
+                out_channels, 
+                kernel_size=kernel_size, 
+                stride=stride
+            ) for in_channels, out_channels, kernel_size, stride in
+            zip(
+                params["channel_sizes"][:-1], 
+                params["channel_sizes"][1:], 
+                params["kernel_sizes"], 
+                params["strides"]
+            )
+        ])
+        self.flatten = nn.Flatten()
+        self.output_layer = nn.Linear(params["output_size"], num_outputs)
+        self.params = params
+
+    def forward(self, x):
+        conv_output = self.conv_layers(x)
+        # xx = x 
+        # for conv in self.conv_layers:
+        #     xx = conv(xx)
+        #     print(xx.shape)
+        flattened_conv_output = self.flatten(conv_output)
+        # print(flattened_conv_output.shape)
+        output = self.output_layer(flattened_conv_output)
+        return output
+
 class AutoEncoder(nn.Module):
 
     def __init__(self, params):
@@ -64,15 +110,10 @@ def load_checkpoint(model_file):
         model = AutoEncoder(model_params)
         model.load_state_dict(checkpoint["model_state_dict"])
         model.eval()
+    elif checkpoint["type"] == "simple_convnet":
+        model_params = {k:v for k, v in checkpoint.items() if k in ["image_size", "kernel_sizes", "strides", "channel_sizes", "output_size"]}
+        model = SimpleConvNet(model_params)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        model.eval()
     return model, checkpoint["image_size"]
 
-#     cnn = nn.Sequential(
-#                 nn.Conv2d(1,5,5),
-#                 nn.ReLU(),
-#                 nn.Conv2d(5,5,5),
-#                 nn.ReLU(),
-#                 nn.Flatten(),
-#                 nn.Linear(120 * 248 * 5, 64),
-#                 nn.ReLU(),
-#                 nn.Linear(64, 1))
-#     return cnn

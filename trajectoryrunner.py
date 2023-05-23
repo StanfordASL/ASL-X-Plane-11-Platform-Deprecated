@@ -68,6 +68,7 @@ def run_trajectory(xplane, controller, estimator, episode_params, monitor=None, 
 
         cte, he = estimator.get_estimate(observation)
         speed = ground_truth_state[-1]
+        print(cte - ground_truth_state[0], he - ground_truth_state[1], speed)
 
         if monitor is not None:
             anomaly_score, estop = monitor.monitor(observation, [cte, he, speed])
