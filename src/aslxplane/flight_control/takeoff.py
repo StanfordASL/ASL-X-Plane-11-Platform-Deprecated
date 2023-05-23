@@ -198,7 +198,10 @@ class TakeoffController:
     ################################################################################
 
     def read_dynamics(self):
-        dynamics_state = json.loads(self.rconn.get("flight/dynamics_new2"))
+        from pathlib import Path
+        dynamics_path = Path(__file__).absolute().parents[3] / "notebooks" / "data" / "dynamics_new2.json"
+        #dynamics_state = json.loads(self.rconn.get("flight/dynamics_new2"))
+        dynamics_state = json.loads(dynamics_path.read_text())
         # fn = getattr(dynamics, dynamics_state["name"])
         fn = getattr(dynamics, "int_f_fx_fu_fn2")
         self.params.update({k: jaxm.array(v) for (k, v) in dynamics_state["params"].items()})
