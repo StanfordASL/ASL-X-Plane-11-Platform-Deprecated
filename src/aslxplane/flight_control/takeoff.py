@@ -132,6 +132,7 @@ class TakeoffController:
                 dsh.Text(title="Control", text="", border_color=2, color=2),
             ),
             dsh.Log(title="Debug", border_color=2, color=2),
+            dsh.HBrailleChart(title="Distance to approach line", border_color=2, color=2)
         )
         self.last_ui_update = time.time()
 
@@ -162,10 +163,10 @@ class TakeoffController:
         self.xp.sendDREF(BRAKE, brake)
 
     def reset(self):
+        """Reset the simulation to the state about 5km in the air behind the runway."""
         self.xp.sendDREF(SIM_SPEED, 1.0)
         self.xp.sendVIEW(xpc.ViewType.Chase)
         for _ in range(1):
-            self.xp.pauseSim(True)
             # arrest speed
             self.xp.sendPOSI(self.posi0)
             self.xp.sendDREFs(list(SPEEDS.values()), [0 for _ in SPEEDS.values()])
@@ -178,14 +179,15 @@ class TakeoffController:
             posi = list(copy(self.posi0))
             posi[2] = 300
             dist = 5e3
-            posi[0] += dist / DEG_TO_METERS * -math.cos(deg2rad(posi[5])) - 3e1 / DEG_TO_METERS
-            posi[1] += dist / DEG_TO_METERS * -math.sin(deg2rad(posi[5])) + 3e3 / DEG_TO_METERS
+            posi[0] += dist / DEG_TO_METERS * -math.cos(deg2rad(posi[5])) + 0 * 3e3 / DEG_TO_METERS
+            posi[1] += dist / DEG_TO_METERS * -math.sin(deg2rad(posi[5])) + 0 * 3e3 / DEG_TO_METERS
+
+            # set the plane at the new reset position, match simulation speed to heading
             self.xp.sendPOSI(posi)
             v = 60.0
             vx, vz = v * math.sin(deg2rad(self.posi0[5])), v * -math.cos(deg2rad(self.posi0[5]))
             self.xp.sendDREFs([SPEEDS["local_vx"], SPEEDS["local_vz"]], [vx, vz])
 
-            self.xp.pauseSim(False)
             time.sleep(0.3)
 
     def get_time_state(self):
@@ -229,7 +231,6 @@ class TakeoffController:
         u_u = np.ones((p.N, p.udim))
         u_l = np.concatenate([-np.ones((p.N, p.udim - 1)), np.zeros((p.N, 1))], axis=-1)
         p.u_l, p.u_u = u_l, u_u
-        x_l, x_u = -1e5 * np.ones(p.xdim), 1e5 * np.ones(p.xdim)
         x_ref = np.copy(p.x0)
 
         dist = np.linalg.norm(self.target[:2] - p.x0[:2])
@@ -239,7 +240,7 @@ class TakeoffController:
             np.array(
                 [1e0, 1e0, 1e2]
                 + [1e3, 1e0]
-                + [1e0, 3e4, 1e5]
+                + [1e0, 3e4, 1e4]
                 + [1e-3, 1e-3, 1e-3]
                 + [0 * 1e-3, 0 * 1e-3, 0 * 1e-3]
                 + [0 * 1e-3, 0 * 1e-3, 0 * 1e-3]
@@ -247,7 +248,7 @@ class TakeoffController:
             / 1e3
         )
 
-        approach_ang = deg2rad(self.posi0[5])
+        approach_ang = deg2rad(self.posi0[5]) - 0.15
         Q = np.diag(q_diag)
         v_norm = np.array([math.cos(approach_ang), math.sin(approach_ang)])
 
@@ -261,6 +262,7 @@ class TakeoffController:
             + max(np.linalg.norm(v_perp), 1e2) * v_perp / np.linalg.norm(v_perp)
             + d_par * v_par
         )
+        self.ui.items[2].append(float(np.linalg.norm(v_perp)) / 1e1 + 1)
 
         if not hasattr(self, "cost_approx"):
 
@@ -269,10 +271,21 @@ class TakeoffController:
                 dx = target[:2] - x0[:2]
                 v_par = jaxm.sum(dx * v_norm) * v_norm
                 v_perp = dx - v_par
+                v_perp_norm = jaxm.linalg.norm(v_perp)
                 v_perp_norm2 = jaxm.sum(v_perp**2)
                 # Huber-like loss on the y-position distance from the approach line
-                Jvp = jaxm.minimum(jaxm.linalg.norm(v_perp), 1e-3 * v_perp_norm2)
-                return 1e3 * Jvp + 3e1 * jaxm.linalg.norm(v_par)
+                #Jvp = jaxm.minimum(jaxm.linalg.norm(v_perp), 1e-3 * v_perp_norm2)
+                #Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, 3e-4 * v_perp_norm2)
+                #Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, 7e-4 * v_perp_norm2)
+                v_towards = 50.0 * jaxm.sum(v_perp * v_norm) / v_perp_norm
+                #J_other = jaxm.where(v_perp_norm > 5e1, 7e-4 * v_perp_norm2, 3e-3 * v_perp_norm2)
+                #Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, J_other)
+
+                #Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, 7e-4 * v_perp_norm2)
+                #return 1e3 * Jvp + 3e1 * jaxm.linalg.norm(v_par)
+
+                Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, 1e-3 * v_perp_norm2)
+                return 1e3 * Jvp + 3e2 * jaxm.linalg.norm(v_par) + 0 * 1e4 * v_towards
 
             @jaxm.jit
             def cost_approx(x0, target, v_norm):
@@ -366,14 +379,18 @@ class TakeoffController:
             u = L @ state + l
 
         u_pitch, u_roll, u_heading, throttle = np.clip(u, [-1, -1, -1, 0], [1, 1, 1, 1])
+
+        # initiate landing ####################################
         if state[2] < 5.0:
             self.data.setdefault("fixed_pitch", u_pitch - 0.05)
             u_pitch, u_roll, u_heading, throttle = self.data["fixed_pitch"], 0.0, 0.0, 0.0
             self.brake(1)
-        ctrl = self.build_control(pitch=u_pitch, roll=u_roll, yaw=u_heading, throttle=throttle)
+        # initiate landing ####################################
 
+        ctrl = self.build_control(pitch=u_pitch, roll=u_roll, yaw=u_heading, throttle=throttle)
         self.xp.sendCTRL(ctrl)
 
+        # update the UI
         if time.time() - self.last_ui_update > 0.33:
             state_names = list(FULL_STATE.keys())[:11]
             self.ui.items[0].items[0].text = "\n".join(
