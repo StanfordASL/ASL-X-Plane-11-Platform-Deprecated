@@ -1,4 +1,5 @@
 # Repo specific files
+**/runs/**
 xplane-env/
 data/
 .ipynb_checkpoints/

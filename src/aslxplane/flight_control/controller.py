@@ -4,15 +4,18 @@ import time
 from pathlib import Path
 import json
 import math
-from copy import copy
+from copy import copy, deepcopy
 from pathlib import Path
-from multiprocessing import Process, Lock, Array, Event, Value
+from typing import Any
+from multiprocessing import Lock
 from threading import Thread
 
-from tabulate import tabulate
+os.environ["JAX_PLATFORM_NAME"] = "CPU"
+
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import interp1d
+from tqdm import tqdm
 import xpc
 import dashing as dsh
 
@@ -21,14 +24,18 @@ from pmpc.remote import solve_problems, RegisteredFunction
 from pmpc.experimental.jax.root import all_sensitivity_L
 
 try:
-    from . import dynamics
+    from . import dynamics, utils
     from .lqr import design_LQR_controller
+    from .utils import XPlaneConnectWrapper, deg2rad, rad2deg, FlightState, reset_flight
 except ImportError:
     root_path = Path(__file__).parents[2]
     if str(root_path) not in sys.path:
         sys.path.append(str(root_path))
-    import dynamics
-    from lqr import design_LQR_controller
+    from aslxplane.flight_control import dynamics
+    from aslxplane.flight_control import utils
+    from aslxplane.flight_control.lqr import design_LQR_controller
+    from aslxplane.flight_control.utils import XPlaneConnectWrapper, FlightState
+    from aslxplane.flight_control.utils import deg2rad, rad2deg, reset_flight
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "False"
 os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
@@ -40,57 +47,42 @@ from jfi import jaxm
 
 ####################################################################################################
 
-SPEEDS = {
-    "local_vx": "sim/flightmodel/position/local_vx",
-    "local_vy": "sim/flightmodel/position/local_vy",
-    "local_vz": "sim/flightmodel/position/local_vz",
+
+DEFAULT_COST_CONFIG = {
+    #"heading_cost": 1e5,
+    "heading_cost": 1e4,
+    "roll_cost": 3e4,
+    "position_cost": 1e0,
+    "altitude_cost": 1e2,
+    #"par_cost": 3e2,
+    "par_cost": 498.863996,
+    #"perp_cost": 1e3,
+    "perp_cost": 481.605499,
+    #"perp_quad_cost": 7e-4,
+    "perp_quad_cost": 0.002698,
+    "par_quad_cost": 1e-3,
 }
-BRAKE = "sim/flightmodel/controls/parkbrake"
-ROTATION_SPEEDS = {
-    "dpitch": "sim/flightmodel/position/Q",
-    "dyaw": "sim/flightmodel/position/R",
-    "droll": "sim/flightmodel/position/P",
+
+DEFAULT_CONFIG = {
+    "sim_speed": 1.0,
+    "x0_offset": 0.0,
+    "y0_offset": 0.0,
 }
-SIM_SPEED = "sim/time/sim_speed"
-
-FULL_STATE = {
-    "x": "sim/flightmodel/position/latitude",
-    "y": "sim/flightmodel/position/longitude",
-    "z": "sim/flightmodel/position/elevation",
-    "v": "sim/flightmodel/position/true_airspeed",
-    "vh": "sim/flightmodel/position/vh_ind",
-    "pitch": "sim/flightmodel/position/theta",
-    "roll": "sim/flightmodel/position/phi",
-    "yaw": "sim/flightmodel/position/psi",
-    "dpitch": "sim/flightmodel/position/Q",
-    "droll": "sim/flightmodel/position/P",
-    "dyaw": "sim/flightmodel/position/R",
-}
-STATE_REF = {
-    "lat_ref": "sim/flightmodel/position/latitude",
-    "lon_ref": "sim/flightmodel/position/longitude",
-}
-SIM_TIME = "sim/time/total_flight_time_sec"
-
-DEG_TO_METERS = 1852 * 60
-
-####################################################################################################
-
-
-def rad2deg(x):
-    return x * 180 / math.pi
-
-
-def deg2rad(x):
-    return x * math.pi / 180
-
-
-####################################################################################################
 
 
 class TakeoffController:
-    def __init__(self):
-        self.xp = xpc.XPlaneConnect()
+    def __init__(
+        self,
+        config: dict[str, Any] = DEFAULT_CONFIG,
+        cost_config: dict[str, float] = DEFAULT_COST_CONFIG,
+        verbose: bool = True,
+    ):
+        self.verbose = verbose
+        self.config, self.cost_config = deepcopy(DEFAULT_CONFIG), deepcopy(DEFAULT_COST_CONFIG)
+        self.config.update(deepcopy(config))
+        self.cost_config.update(deepcopy(cost_config))
+
+        self.xp = XPlaneConnectWrapper()
         self.flight_state = FlightState()
         time.sleep(0.3)
         self.int_state = np.zeros(6)
@@ -104,16 +96,11 @@ class TakeoffController:
 
         self.brake(0)
         self.t_start = time.time()
-        T, self.dt = 600.0, 0.5
-        N = math.ceil(T / self.dt)
-        self.u_random = 3e-1 * np.random.randn(*(N, 4))
-        self.u_random[: round(5.0 / self.dt), :] = 0
-        self.u_random = 0 * self.u_random
-        self.it = 0
         self.u_hist, self.x_hist, self.t_hist = [], [], []
         self.controller = "lqr"
         self.read_dynamics()
         self.target = self.get_curr_state()
+        self.approach_ang = deg2rad(self.posi0[5]) - 0.15
         self.lock = Lock()
         self.ts, self.X, self.U, self.Ls = None, None, None, None
         self.done = False
@@ -132,26 +119,38 @@ class TakeoffController:
                 dsh.Text(title="Control", text="", border_color=2, color=2),
             ),
             dsh.Log(title="Debug", border_color=2, color=2),
-            dsh.HBrailleChart(title="Distance to approach line", border_color=2, color=2)
+            dsh.HBrailleChart(title="Distance to approach line", border_color=2, color=2),
         )
+        self.ui_log = self.ui.items[1]
         self.last_ui_update = time.time()
-
         self.data = dict()
 
+    def loop(self):
+        self.reset()
+
+        self.data = dict()
+        self.it = 0
+        self.u_hist, self.x_hist, self.t_hist = [], [], []
+        self.t_start = time.time()
+
+        T = 300.0 / self.config["sim_speed"]
         dt_small = 1.0 / 50.0
         t_prev = 0.0
-        try:
-            while time.time() - self.t_start < T:
-                t_prev = time.time()
-                self.control()
-                #self.advance_state(dt_small)
-                sleep_for = max(0, dt_small - (time.time() - t_prev))
-                # print(f"Sleeping for {sleep_for:.4e} s")
-                time.sleep(sleep_for)
-                self.it += 1
-        except KeyboardInterrupt:
-            pass
+        while not self.done and time.time() - self.t_start < T:
+            t_prev = time.time()
+            self.control()
+            # self.advance_state(dt_small)
+            sleep_for = max(0, dt_small - (time.time() - t_prev))
+            # print(f"Sleeping for {sleep_for:.4e} s")
+            time.sleep(sleep_for)
+            self.it += 1
+            is_crashed = self.xp.getDREF("sim/flightmodel2/misc/has_crashed")[0] > 0.0
+            self.ui_log.append(f"Time = {time.time() - self.t_start:.2f} s")
+            if is_crashed:
+                reset_flight(self.xp)
+                return True
         self.reset()
+        return False
 
     @staticmethod
     def build_control(pitch=0, roll=0, yaw=0, throttle=0, gear=0, flaps=0):
@@ -160,35 +159,46 @@ class TakeoffController:
         ]
 
     def brake(self, brake=1):
-        self.xp.sendDREF(BRAKE, brake)
+        self.xp.sendDREF(utils.BRAKE, brake)
 
     def reset(self):
         """Reset the simulation to the state about 5km in the air behind the runway."""
-        self.xp.sendDREF(SIM_SPEED, 1.0)
+        self.xp.sendDREF(utils.SIM_SPEED, self.config["sim_speed"])
         self.xp.sendVIEW(xpc.ViewType.Chase)
         for _ in range(1):
             # arrest speed
             self.xp.sendPOSI(self.posi0)
-            self.xp.sendDREFs(list(SPEEDS.values()), [0 for _ in SPEEDS.values()])
+            self.xp.sendDREFs(list(utils.SPEEDS.values()), [0 for _ in utils.SPEEDS.values()])
             # arrest rotation
-            self.xp.sendDREFs(list(ROTATION_SPEEDS.values()), [0 for _ in ROTATION_SPEEDS.values()])
+            self.xp.sendDREFs(
+                list(utils.ROTATION_SPEEDS.values()), [0 for _ in utils.ROTATION_SPEEDS.values()]
+            )
             self.xp.sendPOSI(self.posi0)
             self.xp.sendCTRL(self.build_control())
             self.brake()
 
             posi = list(copy(self.posi0))
             posi[2] = 300
-            dist = 5e3
-            posi[0] += dist / DEG_TO_METERS * -math.cos(deg2rad(posi[5])) + 0 * 3e3 / DEG_TO_METERS
-            posi[1] += dist / DEG_TO_METERS * -math.sin(deg2rad(posi[5])) + 0 * 3e3 / DEG_TO_METERS
+            dist = 6e3
+            # posi[0] += dist / DEG_TO_METERS * -math.cos(deg2rad(posi[5])) + 3e3 / DEG_TO_METERS
+            # posi[1] += dist / DEG_TO_METERS * -math.sin(deg2rad(posi[5])) + 3e3 / DEG_TO_METERS
+            posi[0] += (
+                dist / utils.DEG_TO_METERS * -math.cos(deg2rad(posi[5]))
+                + self.config["x0_offset"] / utils.DEG_TO_METERS
+            )
+            posi[1] += (
+                dist / utils.DEG_TO_METERS * -math.sin(deg2rad(posi[5]))
+                + self.config["y0_offset"] / utils.DEG_TO_METERS
+            )
 
             # set the plane at the new reset position, match simulation speed to heading
             self.xp.sendPOSI(posi)
             v = 60.0
             vx, vz = v * math.sin(deg2rad(self.posi0[5])), v * -math.cos(deg2rad(self.posi0[5]))
-            self.xp.sendDREFs([SPEEDS["local_vx"], SPEEDS["local_vz"]], [vx, vz])
+            self.xp.sendDREFs([utils.SPEEDS["local_vx"], utils.SPEEDS["local_vz"]], [vx, vz])
 
             time.sleep(0.3)
+        self.data = dict()
 
     def get_time_state(self):
         return tuple(self.flight_state.last_sim_time_and_state)
@@ -236,11 +246,12 @@ class TakeoffController:
         dist = np.linalg.norm(self.target[:2] - p.x0[:2])
 
         # for lqr #####################################################
+        cc = self.cost_config
         q_diag = (
             np.array(
-                [1e0, 1e0, 1e2]
+                [cc["position_cost"], cc["position_cost"], cc["altitude_cost"]]
                 + [1e3, 1e0]
-                + [1e0, 3e4, 1e4]
+                + [1e0, cc["roll_cost"], cc["heading_cost"]]
                 + [1e-3, 1e-3, 1e-3]
                 + [0 * 1e-3, 0 * 1e-3, 0 * 1e-3]
                 + [0 * 1e-3, 0 * 1e-3, 0 * 1e-3]
@@ -248,12 +259,13 @@ class TakeoffController:
             / 1e3
         )
 
-        approach_ang = deg2rad(self.posi0[5]) - 0.15
         Q = np.diag(q_diag)
-        v_norm = np.array([math.cos(approach_ang), math.sin(approach_ang)])
+        v_norm = np.array([math.cos(self.approach_ang), math.sin(self.approach_ang)])
 
         dx = np.array(self.target[:2]) - np.array(p.x0[:2])
         v_par = np.sum(dx * v_norm) * v_norm
+        if np.sum(v_par * v_norm) < -200.0:
+            self.done = True
         v_perp = dx - v_par
         self.ui.items[1].append(f"Distance to approach line: {np.linalg.norm(v_perp):.4e} m")
         d_par = math.sqrt(max(5e2**2 - np.linalg.norm(v_perp) ** 2, 0)) / np.linalg.norm(v_par)
@@ -262,9 +274,11 @@ class TakeoffController:
             + max(np.linalg.norm(v_perp), 1e2) * v_perp / np.linalg.norm(v_perp)
             + d_par * v_par
         )
+        angle = np.cos(p.x0[7] - self.params["ang_ref"][2])
+        self.ui.items[1].append(f"Angle to approach line: {angle:.4e}")
         self.ui.items[2].append(float(np.linalg.norm(v_perp)) / 1e1 + 1)
 
-        if not hasattr(self, "cost_approx"):
+        if "cost_approx" not in self.data:
 
             def cost_fn(x0, target, v_norm):
                 """Compute a position cost as a scalar."""
@@ -273,19 +287,27 @@ class TakeoffController:
                 v_perp = dx - v_par
                 v_perp_norm = jaxm.linalg.norm(v_perp)
                 v_perp_norm2 = jaxm.sum(v_perp**2)
+                v_par_norm = jaxm.linalg.norm(v_par)
+                v_par_norm2 = jaxm.sum(v_par**2)
                 # Huber-like loss on the y-position distance from the approach line
-                #Jvp = jaxm.minimum(jaxm.linalg.norm(v_perp), 1e-3 * v_perp_norm2)
-                #Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, 3e-4 * v_perp_norm2)
-                #Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, 7e-4 * v_perp_norm2)
-                v_towards = 50.0 * jaxm.sum(v_perp * v_norm) / v_perp_norm
-                #J_other = jaxm.where(v_perp_norm > 5e1, 7e-4 * v_perp_norm2, 3e-3 * v_perp_norm2)
-                #Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, J_other)
+                # Jvp = jaxm.minimum(jaxm.linalg.norm(v_perp), 1e-3 * v_perp_norm2)
+                # Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, 3e-4 * v_perp_norm2)
+                # Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, 7e-4 * v_perp_norm2)
+                # angle = jaxm.abs(jaxm.sum(dx * v_norm) / (jaxm.linalg.norm(dx) * jaxm.linalg.norm(v_norm)))
 
-                #Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, 7e-4 * v_perp_norm2)
-                #return 1e3 * Jvp + 3e1 * jaxm.linalg.norm(v_par)
+                cc = self.cost_config
+                # J_other = jaxm.where(v_perp_norm > 5e1, 7e-4 * v_perp_norm2, 3e-3 * v_perp_norm2)
+                # Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, J_other)
 
-                Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, 1e-3 * v_perp_norm2)
-                return 1e3 * Jvp + 3e2 * jaxm.linalg.norm(v_par) + 0 * 1e4 * v_towards
+                # Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, 7e-4 * v_perp_norm2)
+                # return 1e3 * Jvp + 3e1 * jaxm.linalg.norm(v_par)
+
+                Jv_perp = jaxm.where(
+                    v_perp_norm > 1e3, v_perp_norm, cc["perp_quad_cost"] * v_perp_norm2
+                )
+                #Jv_par = jaxm.where(v_par_norm > 3e3, v_par_norm, cc["par_quad_cost"] * v_par_norm2)
+                Jv_par = v_par_norm
+                return cc["perp_cost"] * Jv_perp + cc["par_cost"] * Jv_par
 
             @jaxm.jit
             def cost_approx(x0, target, v_norm):
@@ -296,7 +318,7 @@ class TakeoffController:
                 ref = x0 - jaxm.linalg.solve(Q, g)
                 return Q, ref
 
-            self.cost_approx = cost_approx
+            self.data["cost_approx"] = cost_approx
 
         x_ref[2] = min(
             max(self.posi0[2], self.params["pos_ref"][2] * (dist / 5e3)), 300.0
@@ -306,7 +328,7 @@ class TakeoffController:
         x_ref[8:11] = 0  # dangles
         x_ref[11:] = 0  # integrated errors
 
-        Qx, refx = self.cost_approx(p.x0[:2], np.array(self.target)[:2], np.array(v_norm))
+        Qx, refx = self.data["cost_approx"](p.x0[:2], np.array(self.target)[:2], np.array(v_norm))
         x_ref[:2] = refx[:2]
         Q[:2, :2] = Qx[:2, :2] / 1e3
 
@@ -387,12 +409,15 @@ class TakeoffController:
             self.brake(1)
         # initiate landing ####################################
 
+        self.t_hist.append(self.get_curr_time())
+        self.x_hist.append(copy(state))
+        self.u_hist.append(copy(u))
         ctrl = self.build_control(pitch=u_pitch, roll=u_roll, yaw=u_heading, throttle=throttle)
         self.xp.sendCTRL(ctrl)
 
         # update the UI
-        if time.time() - self.last_ui_update > 0.33:
-            state_names = list(FULL_STATE.keys())[:11]
+        if self.verbose and time.time() - self.last_ui_update > 0.33:
+            state_names = list(utils.FULL_STATE.keys())[:11]
             self.ui.items[0].items[0].text = "\n".join(
                 [f"{name:<10s} {s:+07.4e}" for (name, s) in zip(state_names, state[:11])]
             )
@@ -403,8 +428,6 @@ class TakeoffController:
             self.last_ui_update = time.time()
             self.ui.display()
 
-    ################################################################################
-
     def close(self):
         self.flight_state.close()
         self.done = True
@@ -413,101 +436,3 @@ class TakeoffController:
 
 
 ####################################################################################################
-
-
-class FlightState:
-    def __init__(self):
-        self.shm = Array("d", [math.nan for _ in range(2 + len(FULL_STATE))])
-        self.lock = Lock()
-        self.close_event = Event()
-        xp = xpc.XPlaneConnect()
-        self.ref = [
-            x[0] for x in xp.getDREFs([SIM_TIME, STATE_REF["lat_ref"], STATE_REF["lon_ref"]])
-        ]
-        xp.close()
-        self.start_process()
-        self.real_times, self.sim_times = [], []
-        time.sleep(1e-1)
-
-    @property
-    def last_sim_time_and_state(self):
-        if not self.process.is_alive():
-            self.start_process()
-        with self.lock:
-            real_time, sim_time, state = self.shm[0], self.shm[1], self.shm[2:]
-        self.real_times.append(real_time)
-        self.sim_times.append(sim_time)
-        if len(self.real_times) > 100:
-            self.real_times = self.real_times[-100:]
-            self.sim_times = self.sim_times[-100:]
-        return sim_time, state
-
-    def estimated_time(self):
-        median_diff = np.median(np.array(self.sim_times) - np.array(self.real_times))
-        return time.time() + median_diff
-
-    def start_process(self):
-        self.process = Process(
-            target=self._state_query_process, args=(self.lock, self.shm, self.ref, self.close_event)
-        )
-        self.process.start()
-
-    def close(self):
-        self.close_event.set()
-        self.process.join()
-
-    def posi2state_pos(self, posi):
-        sim_time0, lat0, lon0 = self.ref
-        state_pos = [None for _ in range(3)]
-        state_pos[0] = (posi[0] - lat0) * DEG_TO_METERS
-        state_pos[1] = (posi[1] - lon0) * DEG_TO_METERS
-        state_pos[2] = posi[2]
-        return state_pos
-
-    def state_pos2posi(self, state_pos):
-        sim_time0, lat0, lon0 = self.ref
-        posi = [None for _ in range(3)]
-        posi[0] = state_pos[0] / DEG_TO_METERS + lat0
-        posi[1] = state_pos[1] / DEG_TO_METERS + lon0
-        posi[2] = state_pos[2]
-        return posi
-
-    @staticmethod
-    def _state_query_process(lock, shm, ref, close_event):
-        xp = xpc.XPlaneConnect()
-        sim_time0, lat0, lon0 = ref
-        while not close_event.is_set():
-            real_time = time.time()
-            state_time = [x[0] for x in xp.getDREFs(list(FULL_STATE.values()) + [SIM_TIME])]
-            real_time = (time.time() + real_time) / 2.0
-            state, sim_time = state_time[:-1], state_time[-1] - sim_time0
-            state[5:] = [deg2rad(x) for x in state[5:]]
-            # print(f"Getting state took {time.time() - t:.4e} s")
-            state[0] = (state[0] - lat0) * DEG_TO_METERS
-            state[1] = (state[1] - lon0) * DEG_TO_METERS
-            with lock:
-                shm[:] = [real_time, sim_time] + state
-            time.sleep(1e-3)
-        xp.close()
-
-
-####################################################################################################
-
-
-####################################################################################################
-def main():
-    controller = TakeoffController()
-    controller.close()
-    # hist = {
-    #    "x": controller.x_hist,
-    #    "u": controller.u_hist,
-    #    "t": controller.t_hist,
-    # }
-    # i = 0
-    # while len(r.keys(f"flight/new_hist{i}")) > 0:
-    #    i += 1
-    # r.set(f"flight/new_hist{i}", json.dumps(hist))
-
-
-if __name__ == "__main__":
-    main()
