@@ -6,7 +6,7 @@ import json
 import math
 from copy import copy, deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 from multiprocessing import Lock
 from threading import Thread
 
@@ -70,12 +70,13 @@ DEFAULT_CONFIG = {
 }
 
 
-class TakeoffController:
+class FlightController:
     def __init__(
         self,
         config: dict[str, Any] = DEFAULT_CONFIG,
         cost_config: dict[str, float] = DEFAULT_COST_CONFIG,
         verbose: bool = True,
+        view: Optional[xpc.ViewType] = None
     ):
         self.verbose = verbose
         self.config, self.cost_config = deepcopy(DEFAULT_CONFIG), deepcopy(DEFAULT_COST_CONFIG)
@@ -87,6 +88,7 @@ class TakeoffController:
         time.sleep(0.3)
         self.int_state = np.zeros(6)
         self.state0, self.posi0 = self.get_curr_state(), self.xp.getPOSI()
+        self.view = view if view is not None else xpc.ViewType.Chase
 
         # touchdown
         self.v_ref = 50.0
@@ -100,7 +102,8 @@ class TakeoffController:
         self.controller = "lqr"
         self.read_dynamics()
         self.target = self.get_curr_state()
-        self.approach_ang = deg2rad(self.posi0[5]) - 0.15
+        #self.approach_ang = deg2rad(self.posi0[5]) - 0.15
+        self.approach_ang = deg2rad(self.posi0[5]) - 0.1
         self.lock = Lock()
         self.ts, self.X, self.U, self.Ls = None, None, None, None
         self.done = False
@@ -125,7 +128,8 @@ class TakeoffController:
         self.last_ui_update = time.time()
         self.data = dict()
 
-    def loop(self):
+    def loop(self, abort_at: float = math.inf):
+        t_loop_start = time.time()
         self.reset()
 
         self.data = dict()
@@ -133,15 +137,17 @@ class TakeoffController:
         self.u_hist, self.x_hist, self.t_hist = [], [], []
         self.t_start = time.time()
 
-        T = 300.0 / self.config["sim_speed"]
+        #T = 300.0 / self.config["sim_speed"]
+        T = 110.0 / self.config["sim_speed"]
         dt_small = 1.0 / 50.0
         t_prev = 0.0
         while not self.done and time.time() - self.t_start < T:
+            if time.time() - t_loop_start > abort_at:
+                self.controller = "pid"
             t_prev = time.time()
             self.control()
             # self.advance_state(dt_small)
             sleep_for = max(0, dt_small - (time.time() - t_prev))
-            # print(f"Sleeping for {sleep_for:.4e} s")
             time.sleep(sleep_for)
             self.it += 1
             is_crashed = self.xp.getDREF("sim/flightmodel2/misc/has_crashed")[0] > 0.0
@@ -164,7 +170,7 @@ class TakeoffController:
     def reset(self):
         """Reset the simulation to the state about 5km in the air behind the runway."""
         self.xp.sendDREF(utils.SIM_SPEED, self.config["sim_speed"])
-        self.xp.sendVIEW(xpc.ViewType.Chase)
+        self.xp.sendVIEW(self.view)
         for _ in range(1):
             # arrest speed
             self.xp.sendPOSI(self.posi0)
@@ -243,7 +249,8 @@ class TakeoffController:
         p.u_l, p.u_u = u_l, u_u
         x_ref = np.copy(p.x0)
 
-        dist = np.linalg.norm(self.target[:2] - p.x0[:2])
+        target = self.target[:2] + 400 * np.array([math.cos(self.approach_ang), math.sin(self.approach_ang)])
+        dist = np.linalg.norm(target[:2] - p.x0[:2])
 
         # for lqr #####################################################
         cc = self.cost_config
@@ -262,7 +269,7 @@ class TakeoffController:
         Q = np.diag(q_diag)
         v_norm = np.array([math.cos(self.approach_ang), math.sin(self.approach_ang)])
 
-        dx = np.array(self.target[:2]) - np.array(p.x0[:2])
+        dx = np.array(target[:2]) - np.array(p.x0[:2])
         v_par = np.sum(dx * v_norm) * v_norm
         if np.sum(v_par * v_norm) < -200.0:
             self.done = True
@@ -288,24 +295,10 @@ class TakeoffController:
                 v_perp_norm = jaxm.linalg.norm(v_perp)
                 v_perp_norm2 = jaxm.sum(v_perp**2)
                 v_par_norm = jaxm.linalg.norm(v_par)
-                v_par_norm2 = jaxm.sum(v_par**2)
-                # Huber-like loss on the y-position distance from the approach line
-                # Jvp = jaxm.minimum(jaxm.linalg.norm(v_perp), 1e-3 * v_perp_norm2)
-                # Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, 3e-4 * v_perp_norm2)
-                # Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, 7e-4 * v_perp_norm2)
-                # angle = jaxm.abs(jaxm.sum(dx * v_norm) / (jaxm.linalg.norm(dx) * jaxm.linalg.norm(v_norm)))
-
                 cc = self.cost_config
-                # J_other = jaxm.where(v_perp_norm > 5e1, 7e-4 * v_perp_norm2, 3e-3 * v_perp_norm2)
-                # Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, J_other)
-
-                # Jvp = jaxm.where(v_perp_norm > 1e3, v_perp_norm, 7e-4 * v_perp_norm2)
-                # return 1e3 * Jvp + 3e1 * jaxm.linalg.norm(v_par)
-
                 Jv_perp = jaxm.where(
                     v_perp_norm > 1e3, v_perp_norm, cc["perp_quad_cost"] * v_perp_norm2
                 )
-                #Jv_par = jaxm.where(v_par_norm > 3e3, v_par_norm, cc["par_quad_cost"] * v_par_norm2)
                 Jv_par = v_par_norm
                 return cc["perp_cost"] * Jv_perp + cc["par_cost"] * Jv_par
 
@@ -321,14 +314,14 @@ class TakeoffController:
             self.data["cost_approx"] = cost_approx
 
         x_ref[2] = min(
-            max(self.posi0[2], self.params["pos_ref"][2] * (dist / 5e3)), 300.0
+            max(self.posi0[2], self.params["pos_ref"][2] * (dist / 5e3) ), 300.0
         )  # altitude
         x_ref[3:5] = self.v_ref, 0.0  # velocities
         x_ref[5:8] = self.params["ang_ref"]
         x_ref[8:11] = 0  # dangles
         x_ref[11:] = 0  # integrated errors
 
-        Qx, refx = self.data["cost_approx"](p.x0[:2], np.array(self.target)[:2], np.array(v_norm))
+        Qx, refx = self.data["cost_approx"](p.x0[:2], np.array(target)[:2], np.array(v_norm))
         x_ref[:2] = refx[:2]
         Q[:2, :2] = Qx[:2, :2] / 1e3
 
@@ -403,7 +396,7 @@ class TakeoffController:
         u_pitch, u_roll, u_heading, throttle = np.clip(u, [-1, -1, -1, 0], [1, 1, 1, 1])
 
         # initiate landing ####################################
-        if state[2] < 5.0:
+        if state[2] < 5.0 or self.data.get("fixed_pitch", None) is not None:
             self.data.setdefault("fixed_pitch", u_pitch - 0.05)
             u_pitch, u_roll, u_heading, throttle = self.data["fixed_pitch"], 0.0, 0.0, 0.0
             self.brake(1)

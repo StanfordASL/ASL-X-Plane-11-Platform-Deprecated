@@ -6,18 +6,19 @@ import json
 
 import numpy as np
 from tqdm import tqdm
-
 from ray import tune
 from ray.tune.search.hyperopt import HyperOptSearch
 from ray.tune.search.flaml import BlendSearch
 from ray.tune.search import ConcurrencyLimiter
 from ray.air import RunConfig
 
+import xpc
+
 try:
     from . import utils
     from .utils import XPlaneConnectWrapper, FlightState, VideoRecorder
     from .utils import deg2rad, rad2deg, reset_flight
-    from .controller import TakeoffController, DEFAULT_COST_CONFIG
+    from .controller import FlightController, DEFAULT_COST_CONFIG
 except ImportError:
     root_path = Path(__file__).parents[2]
     if str(root_path) not in sys.path:
@@ -25,11 +26,11 @@ except ImportError:
     from aslxplane.flight_control import utils
     from aslxplane.flight_control.utils import XPlaneConnectWrapper, FlightState, VideoRecorder
     from aslxplane.flight_control.utils import deg2rad, rad2deg, reset_flight
-    from aslxplane.flight_control.controller import TakeoffController, DEFAULT_COST_CONFIG
+    from aslxplane.flight_control.controller import FlightController, DEFAULT_COST_CONFIG
 
 
 def main():
-    #offsets_to_test = [(0.0, 0.0), (-2e3, 0.0), (2e3, 0.0)]
+    # offsets_to_test = [(0.0, 0.0), (-2e3, 0.0), (2e3, 0.0)]
     offsets_to_test = [(0.0, 0.0)]
 
     ################################################################################################
@@ -46,9 +47,9 @@ def main():
         v_perp = dx - v_par
         return np.linalg.norm(v_perp, axis=-1)[min_approach_idx]
 
-    def run_trial(cost_config, sim_speed=3.0, record_video=False):
+    def run_trial(cost_config, sim_speed=3.0, record_video=False, view=None, abort_at=1e9):
         reset_flight(XPlaneConnectWrapper(), on_crash_only=False)
-        controller = TakeoffController(config={"sim_speed": sim_speed}, verbose=False)
+        controller = FlightController(config={"sim_speed": sim_speed}, verbose=False, view=view)
         hist_list, cost_list = [], []
         recorder = None
         for offset in tqdm(offsets_to_test):
@@ -56,9 +57,12 @@ def main():
             controller.config.update({"x0_offset": offset[0], "y0_offset": offset[1]})
             if record_video:
                 recorder = VideoRecorder(
-                    f"recording_{random.randint(0, int(1e6)):05d}", controller.flight_state, 2
+                    f"recording_{random.randint(0, int(1e6)):05d}",
+                    controller.flight_state,
+                    2,
+                    display=True,
                 )
-            crashed = controller.loop()
+            crashed = controller.loop(abort_at=abort_at)
             controller.done = False
             if crashed:
                 if recorder is not None:
@@ -93,7 +97,13 @@ def main():
     # experiment 4 #################################################################################
     if args.experiment == 5:
         cost_config = {}
-        run_trial(cost_config, sim_speed=1.0, record_video=True)
+        run_trial(
+            cost_config,
+            sim_speed=1.0,
+            record_video=True,
+            view=xpc.ViewType.FullscreenNoHud,
+            abort_at=97,
+        )
 
     elif args.experiment == 4:
         log_scale = lambda x: tune.loguniform(x * 1e-1, x * 1e1)

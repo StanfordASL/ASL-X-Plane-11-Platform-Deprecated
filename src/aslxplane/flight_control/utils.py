@@ -1,17 +1,24 @@
 import math
 import struct
+import traceback
 import time
 import json
 from pathlib import Path
 from typing import Union
 import socket
 from functools import partial
-from multiprocessing import Array, Event, Lock, Process
+from multiprocessing import Array, Event, Lock, Process, Queue
 
 import cv2
 import numpy as np
 
 import xpc
+
+try:
+    from ..simulation import corruptions
+except ImportError:
+    root_path = Path(__file__).parents[2]
+    from aslxplane.simulation import corruptions
 
 ####################################################################################################
 
@@ -184,13 +191,17 @@ class FlightState:
 
 class VideoRecorder:
     def __init__(
-        self, recording_name: Union[str, Path], flight_state: FlightState, record_id: int = 2
+        self,
+        recording_name: Union[str, Path],
+        flight_state: FlightState,
+        record_id: int = 2,
+        display: bool = True,
     ):
         self.name = Path(recording_name).with_suffix("")
         self.movie_name = self.name.with_suffix(".avi")
         self.meta_name = self.name.with_suffix(".json")
         self.process, self.close_event = None, Event()
-        self.flight_state, self.record_id = flight_state, record_id
+        self.flight_state, self.record_id, self.display = flight_state, record_id, display
         self.start_process()
 
     def start_process(self):
@@ -201,15 +212,20 @@ class VideoRecorder:
                 self.meta_name,
                 self.flight_state,
                 self.record_id,
+                self.display,
                 self.close_event,
             ),
         )
         self.process.start()
 
+    def _visualization_process(self):
+        pass
+
     @staticmethod
-    def _record_process(movie_name, meta_name, flight_state, record_id, close_event):
+    def _record_process(movie_name, meta_name, flight_state, record_id, display, close_event):
         flight_state = FlightState()
         data, reader, writer, frame_id = [], cv2.VideoCapture(record_id), None, 0
+        corr = corruptions.Rain()
         while not close_event.is_set():
             ret, frame = reader.read()
             if not ret:
@@ -225,8 +241,13 @@ class VideoRecorder:
                 {"frame_id": frame_id, "time": time.time(), "sim_time": sim_time, "state": state}
             )
             writer.write(frame)
+            if display:
+                try:
+                    cv2.imshow("frame", cv2.resize(frame, (0, 0), fx=0.2, fy=0.2))
+                    cv2.waitKey(1)
+                except:
+                    traceback.print_exc()
             frame_id += 1
-        print("done, writing")
         Path(meta_name).write_text(json.dumps(data))
         flight_state.close()
 
