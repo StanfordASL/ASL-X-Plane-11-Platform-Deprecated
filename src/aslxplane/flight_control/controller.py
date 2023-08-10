@@ -12,10 +12,8 @@ from threading import Thread
 
 os.environ["JAX_PLATFORM_NAME"] = "CPU"
 
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import interp1d
-from tqdm import tqdm
 import xpc
 import dashing as dsh
 
@@ -26,7 +24,8 @@ from pmpc.experimental.jax.root import all_sensitivity_L
 try:
     from . import dynamics, utils
     from .lqr import design_LQR_controller
-    from .utils import XPlaneConnectWrapper, deg2rad, rad2deg, FlightState, reset_flight
+    from .utils import RobustXPlaneConnect, deg2rad, rad2deg, FlightState, reset_flight
+    from .utils import LATLON_DEG_TO_METERS
 except ImportError:
     root_path = Path(__file__).parents[2]
     if str(root_path) not in sys.path:
@@ -34,8 +33,9 @@ except ImportError:
     from aslxplane.flight_control import dynamics
     from aslxplane.flight_control import utils
     from aslxplane.flight_control.lqr import design_LQR_controller
-    from aslxplane.flight_control.utils import XPlaneConnectWrapper, FlightState
+    from aslxplane.flight_control.utils import RobustXPlaneConnect, FlightState
     from aslxplane.flight_control.utils import deg2rad, rad2deg, reset_flight
+    from aslxplane.flight_control.utils import LATLON_DEG_TO_METERS
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "False"
 os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
@@ -83,8 +83,9 @@ class FlightController:
         self.config.update(deepcopy(config))
         self.cost_config.update(deepcopy(cost_config))
 
-        self.xp = XPlaneConnectWrapper()
+        self.xp = RobustXPlaneConnect()
         self.flight_state = FlightState()
+        self.vis_flight_state, self.use_vision = None, False
         time.sleep(0.3)
         self.int_state = np.zeros(6)
         self.state0, self.posi0 = self.get_curr_state(), self.xp.getPOSI()
@@ -137,8 +138,8 @@ class FlightController:
         self.u_hist, self.x_hist, self.t_hist = [], [], []
         self.t_start = time.time()
 
-        #T = 300.0 / self.config["sim_speed"]
-        T = 110.0 / self.config["sim_speed"]
+        T = 100.0
+        #T = 110.0 / self.config["sim_speed"]
         dt_small = 1.0 / 50.0
         t_prev = 0.0
         while not self.done and time.time() - self.t_start < T:
@@ -186,15 +187,15 @@ class FlightController:
             posi = list(copy(self.posi0))
             posi[2] = 300
             dist = 6e3
-            # posi[0] += dist / DEG_TO_METERS * -math.cos(deg2rad(posi[5])) + 3e3 / DEG_TO_METERS
-            # posi[1] += dist / DEG_TO_METERS * -math.sin(deg2rad(posi[5])) + 3e3 / DEG_TO_METERS
+            # posi[0] += dist / LONLAT_DEG_TO_METERS * -math.cos(deg2rad(posi[5])) + 3e3 / DEG_TO_METERS
+            # posi[1] += dist / LONLAT_DEG_TO_METERS * -math.sin(deg2rad(posi[5])) + 3e3 / DEG_TO_METERS
             posi[0] += (
-                dist / utils.DEG_TO_METERS * -math.cos(deg2rad(posi[5]))
-                + self.config["x0_offset"] / utils.DEG_TO_METERS
+                dist / LATLON_DEG_TO_METERS * -math.cos(deg2rad(posi[5]))
+                + self.config["x0_offset"] / LATLON_DEG_TO_METERS
             )
             posi[1] += (
-                dist / utils.DEG_TO_METERS * -math.sin(deg2rad(posi[5]))
-                + self.config["y0_offset"] / utils.DEG_TO_METERS
+                dist / LATLON_DEG_TO_METERS * -math.sin(deg2rad(posi[5]))
+                + self.config["y0_offset"] / LATLON_DEG_TO_METERS
             )
 
             # set the plane at the new reset position, match simulation speed to heading
@@ -213,7 +214,10 @@ class FlightController:
         return self.flight_state.last_sim_time_and_state[0]
 
     def get_curr_state(self):
-        state = self.flight_state.last_sim_time_and_state[1]
+        if self.use_vision and self.vis_flight_state is not None:
+            state = self.vis_flight_state.last_sim_time_and_state[1]
+        else:
+            state = self.flight_state.last_sim_time_and_state[1]
         state = np.concatenate([np.array(state), self.int_state])
         return state
 
