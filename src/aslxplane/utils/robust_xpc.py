@@ -7,7 +7,7 @@ class RobustXPlaneConnect:
     """An XPlaneConnect wrapper that automatically reconnects if the socket breaks."""
 
     def __init__(self):
-        self.xp = xpc.XPlaneConnect()
+        self.xp = xpc.XPlaneConnect(timeout=100.0)
         self.sendCTRL = partial(self.wrap_call, "sendCTRL")
         self.getDREF = partial(self.wrap_call, "getDREF")
         self.getDREFs = partial(self.wrap_call, "getDREFs")
@@ -24,7 +24,8 @@ class RobustXPlaneConnect:
                 ret = getattr(self.xp, fn_name)(*args, **kwargs)
                 return ret
             except socket.timeout:
-                self.xp = xpc.XPlaneConnect()
+                self.xp.socket.close()
+                self.xp = xpc.XPlaneConnect(timeout=100.0)
 
     def close(self):
         self.xp.close()

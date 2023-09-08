@@ -9,6 +9,7 @@ import numpy as np
 try:
     from ..utils.robust_xpc import RobustXPlaneConnect
     from ..utils.state import FlightState, deg2rad, rad2deg
+    from ..utils.vis_state import FlightStateWithVision
     from ..utils.state import SIM_SPEED, SIM_TIME, BRAKE, ROTATION_SPEEDS, SPEEDS
     from ..utils.state import LATLON_DEG_TO_METERS
 except ImportError:
@@ -17,17 +18,19 @@ except ImportError:
         sys.path.append(str(root_path))
     from aslxplane.utils.robust_xpc import RobustXPlaneConnect
     from aslxplane.utils.state import FlightState, deg2rad, rad2deg
+    from aslxplane.utils.vis_state import FlightStateWithVision
     from aslxplane.utils.state import SIM_SPEED, SIM_TIME, BRAKE, ROTATION_SPEEDS, SPEEDS
     from aslxplane.utils.state import LATLON_DEG_TO_METERS
 
 ####################################################################################################
 
 
-def reset_flight(xp: RobustXPlaneConnect, on_crash_only=True):
+def reset_flight(xp: RobustXPlaneConnect, on_crash_only:bool =True):
     """Send a command COMM to the XPlaneConnect plugin in the format of (COMM, len(cmd), cmd)."""
     is_crashed = xp.getDREF("sim/flightmodel2/misc/has_crashed")[0] > 0.0
     if is_crashed or not on_crash_only:
-        for cmd in ["sim/operation/reset_flight", "sim/operation/close_windows"]:
+        #for cmd in ["sim/operation/reset_flight", "sim/operation/close_windows"]:
+        for cmd in ["sim/operation/reset_flight"]:
             buffer = struct.pack(f"<4sxB{len(cmd)}s".encode(), b"COMM", len(cmd), cmd.encode())
             xp.sendUDP(buffer)
     time.sleep(4.0)

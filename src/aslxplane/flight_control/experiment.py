@@ -134,7 +134,7 @@ def main():
     elif args.experiment == 5:
         offsets_to_test = [
             utils.sample_point_in_triangle(*[(0.0, 0.0), (-2e3, 0.0), (2e3, 0.0)])
-            for _ in range(100)
+            for _ in range(300)
         ]
         cost_config = {}
         for offset in tqdm(offsets_to_test):
@@ -145,7 +145,7 @@ def main():
                 display=False,
                 view=xpc.ViewType.FullscreenNoHud,
                 offsets_to_test=[offset],
-                data_prefix=Path("~/datasets/xplane_recording3").expanduser(),
+                data_prefix=Path("~/datasets/xplane_recording5").expanduser(),
             )
 
     elif args.experiment == 4:

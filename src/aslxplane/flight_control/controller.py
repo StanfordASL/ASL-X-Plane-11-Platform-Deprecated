@@ -25,6 +25,7 @@ try:
     from . import dynamics, utils
     from .lqr import design_LQR_controller
     from .utils import RobustXPlaneConnect, deg2rad, rad2deg, FlightState, reset_flight
+    from .utils import FlightStateWithVision
     from .utils import LATLON_DEG_TO_METERS
 except ImportError:
     root_path = Path(__file__).parents[2]
@@ -35,6 +36,7 @@ except ImportError:
     from aslxplane.flight_control.lqr import design_LQR_controller
     from aslxplane.flight_control.utils import RobustXPlaneConnect, FlightState
     from aslxplane.flight_control.utils import deg2rad, rad2deg, reset_flight
+    from aslxplane.flight_control.utils import FlightStateWithVision
     from aslxplane.flight_control.utils import LATLON_DEG_TO_METERS
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "False"
@@ -44,21 +46,22 @@ os.environ["JAX_ENABLE_X64"] = "True"
 os.environ["JFI_COPY_NUMPY"] = "0"
 
 from jfi import jaxm
+jaxm.set_default_dtype(np.float64)
 
 ####################################################################################################
 
 
 DEFAULT_COST_CONFIG = {
-    #"heading_cost": 1e5,
+    # "heading_cost": 1e5,
     "heading_cost": 1e4,
     "roll_cost": 3e4,
     "position_cost": 1e0,
     "altitude_cost": 1e2,
-    #"par_cost": 3e2,
+    # "par_cost": 3e2,
     "par_cost": 498.863996,
-    #"perp_cost": 1e3,
+    # "perp_cost": 1e3,
     "perp_cost": 481.605499,
-    #"perp_quad_cost": 7e-4,
+    # "perp_quad_cost": 7e-4,
     "perp_quad_cost": 0.002698,
     "par_quad_cost": 1e-3,
 }
@@ -76,7 +79,7 @@ class FlightController:
         config: dict[str, Any] = DEFAULT_CONFIG,
         cost_config: dict[str, float] = DEFAULT_COST_CONFIG,
         verbose: bool = True,
-        view: Optional[xpc.ViewType] = None
+        view: Optional[xpc.ViewType] = None,
     ):
         self.verbose = verbose
         self.config, self.cost_config = deepcopy(DEFAULT_CONFIG), deepcopy(DEFAULT_COST_CONFIG)
@@ -84,11 +87,19 @@ class FlightController:
         self.cost_config.update(deepcopy(cost_config))
 
         self.xp = RobustXPlaneConnect()
-        self.flight_state = FlightState()
-        self.vis_flight_state, self.use_vision = None, False
-        time.sleep(0.3)
         self.int_state = np.zeros(6)
+        self.vis_flight_state, self.use_vision = None, self.config["use_vision"]
+        self.flight_state = FlightState()
+        if self.use_vision:
+            self.vis_flight_state = FlightStateWithVision(**self.config["vision_config"])
+        while not np.all(np.isfinite(self.flight_state.last_sim_time_and_state[1])):
+            time.sleep(1e-1)
+        if self.use_vision:
+            while not np.all(np.isfinite(self.vis_flight_state.last_sim_time_and_state[1])):
+                time.sleep(1e-1)
+        time.sleep(0.3)
         self.state0, self.posi0 = self.get_curr_state(), self.xp.getPOSI()
+        self.target = self.get_curr_state()
         self.view = view if view is not None else xpc.ViewType.Chase
 
         # touchdown
@@ -102,8 +113,7 @@ class FlightController:
         self.u_hist, self.x_hist, self.t_hist = [], [], []
         self.controller = "lqr"
         self.read_dynamics()
-        self.target = self.get_curr_state()
-        #self.approach_ang = deg2rad(self.posi0[5]) - 0.15
+        # self.approach_ang = deg2rad(self.posi0[5]) - 0.15
         self.approach_ang = deg2rad(self.posi0[5]) - 0.1
         self.lock = Lock()
         self.ts, self.X, self.U, self.Ls = None, None, None, None
@@ -139,7 +149,7 @@ class FlightController:
         self.t_start = time.time()
 
         T = 100.0
-        #T = 110.0 / self.config["sim_speed"]
+        # T = 110.0 / self.config["sim_speed"]
         dt_small = 1.0 / 50.0
         t_prev = 0.0
         while not self.done and time.time() - self.t_start < T:
@@ -203,18 +213,20 @@ class FlightController:
             v = 60.0
             vx, vz = v * math.sin(deg2rad(self.posi0[5])), v * -math.cos(deg2rad(self.posi0[5]))
             self.xp.sendDREFs([utils.SPEEDS["local_vx"], utils.SPEEDS["local_vz"]], [vx, vz])
-
-            time.sleep(0.3)
+            time.sleep(0.5)
         self.data = dict()
 
     def get_time_state(self):
+        if self.use_vision:
+            return tuple(self.vis_flight_state.last_sim_time_and_state)
         return tuple(self.flight_state.last_sim_time_and_state)
 
     def get_curr_time(self):
         return self.flight_state.last_sim_time_and_state[0]
 
     def get_curr_state(self):
-        if self.use_vision and self.vis_flight_state is not None:
+        if self.use_vision:
+            #print("Using vision")
             state = self.vis_flight_state.last_sim_time_and_state[1]
         else:
             state = self.flight_state.last_sim_time_and_state[1]
@@ -253,7 +265,9 @@ class FlightController:
         p.u_l, p.u_u = u_l, u_u
         x_ref = np.copy(p.x0)
 
-        target = self.target[:2] + 400 * np.array([math.cos(self.approach_ang), math.sin(self.approach_ang)])
+        target = self.target[:2] + 400 * np.array(
+            [math.cos(self.approach_ang), math.sin(self.approach_ang)]
+        )
         dist = np.linalg.norm(target[:2] - p.x0[:2])
 
         # for lqr #####################################################
@@ -315,10 +329,11 @@ class FlightController:
                 ref = x0 - jaxm.linalg.solve(Q, g)
                 return Q, ref
 
+            self.data["cost_fn"] = cost_fn
             self.data["cost_approx"] = cost_approx
 
         x_ref[2] = min(
-            max(self.posi0[2], self.params["pos_ref"][2] * (dist / 5e3) ), 300.0
+            max(self.posi0[2], self.params["pos_ref"][2] * (dist / 5e3)), 300.0
         )  # altitude
         x_ref[3:5] = self.v_ref, 0.0  # velocities
         x_ref[5:8] = self.params["ang_ref"]
@@ -387,6 +402,7 @@ class FlightController:
             u = interp1d(ts[:-1], U, **opts)(curr_time)
             u = u + Ls[0, :, :] @ (state - x)
         elif self.controller == "lqr":
+            t = time.time()
             state = self.get_curr_state()
             p = self.construct_problem(state)
             Q, R, x_ref, u_ref = p.Q[0, :, :], p.R[0, :, :], p.X_ref[0, :], p.U_ref[0, :]
@@ -396,7 +412,15 @@ class FlightController:
             A, B, d = fx, fu, f - fx @ state - fu @ u0
             L, l = design_LQR_controller(A, B, d, Q, R, x_ref, u_ref, T=10)
             u = L @ state + l
+            #print(f"Full ctrl design took {time.time() - t:.4e} s")
 
+        if (
+            "random_control_last_t" not in self.data
+            or self.get_curr_time() - self.data["random_control_last_t"] > 0.25
+        ):
+            self.data["random_control_last_t"] = self.get_curr_time()
+            self.data["random_control_last_u"] = 1e-1 * np.random.randn(4)
+        #u = u + self.data["random_control_last_u"]
         u_pitch, u_roll, u_heading, throttle = np.clip(u, [-1, -1, -1, 0], [1, 1, 1, 1])
 
         # initiate landing ####################################
@@ -410,7 +434,10 @@ class FlightController:
         self.x_hist.append(copy(state))
         self.u_hist.append(copy(u))
         ctrl = self.build_control(pitch=u_pitch, roll=u_roll, yaw=u_heading, throttle=throttle)
+        #print(f"Time: {time.time():.15e}")
         self.xp.sendCTRL(ctrl)
+        #print(f"Distance from target: {np.linalg.norm(state[:2] - self.target[:2]):.4e}")
+        #print(flush=True)
 
         # update the UI
         if self.verbose and time.time() - self.last_ui_update > 0.33:
